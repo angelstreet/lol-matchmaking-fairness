@@ -8,7 +8,7 @@ import * as store from '../lib/db.mjs';
 export default async function handler(req, res) {
   try {
     await store.init();
-    const riotId = String(req.query.riotId || '');
+    const riotId = String(req.query.riotId || '').trim().replace(/\s*#\s*/, '#');
     const games = Math.min(10, parseInt(req.query.games || '5', 10));
     const region = String(req.query.region || 'euw').replace(/[^a-z]/g, '');
     const key = req.headers['x-api-key'] || process.env.RIOT_API_KEY;

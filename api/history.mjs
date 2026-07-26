@@ -7,7 +7,7 @@ import * as store from '../lib/db.mjs';
 export default async function handler(req, res) {
   try {
     await store.init();
-    const riotId = String(req.query.riotId || '');
+    const riotId = String(req.query.riotId || '').trim().replace(/\s*#\s*/, '#');
     const offset = Math.max(0, parseInt(req.query.offset || '0', 10));
     const limit = Math.min(10, Math.max(1, parseInt(req.query.limit || '10', 10)));
     if (!riotId.includes('#')) return res.status(400).json({ error: 'riotId must be Name#TAG' });

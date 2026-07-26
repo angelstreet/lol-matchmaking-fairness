@@ -44,6 +44,9 @@ $('#riotId').value = localStorage.getItem('riotId') || '';
 $('#howKey').addEventListener('click', e => { e.preventDefault(); const k = $('#keyHelp'); k.style.display = k.style.display === 'none' ? 'block' : 'none'; });
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Riot IDs are typed inconsistently ("Name #TAG" vs "Name#TAG") — normalize whitespace around
+// the '#' everywhere before it's used as a cache/history key, so both forms resolve the same entry.
+const normRiotId = s => String(s || '').trim().replace(/\s*#\s*/, '#');
 const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-key': k } : {}; };
 let CTX = { riotId: '', region: 'euw' };
 
@@ -59,7 +62,7 @@ function renderBM() {
 function openDrop() { if (getBM().length) $('#bmDrop').classList.add('open'); }
 function closeDrop() { $('#bmDrop').classList.remove('open'); }
 function updateStar() {
-  const on = isBM($('#riotId').value.trim());
+  const on = isBM(normRiotId($('#riotId').value));
   $('#bmStar').textContent = on ? '★' : '☆';
   $('#bmStar').classList.toggle('starred', on);
 }
@@ -75,7 +78,7 @@ async function serverBM(op, riotId, region) {
   } catch { return null; }
 }
 $('#bmStar').addEventListener('click', async () => {
-  const riotId = $('#riotId').value.trim();
+  const riotId = normRiotId($('#riotId').value);
   if (!riotId.includes('#')) return;
   const region = $('#region').value, on = isBM(riotId);
   setBM(on ? getBM().filter(b => b.riotId.toLowerCase() !== riotId.toLowerCase()) : [...getBM(), { riotId, region }]);
@@ -122,7 +125,7 @@ if (CLERK_PK) {
 
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
-  CTX = { riotId: $('#riotId').value.trim(), region: $('#region').value };
+  CTX = { riotId: normRiotId($('#riotId').value), region: $('#region').value };
   localStorage.setItem('rgapi', $('#apiKey').value.trim());
   localStorage.setItem('riotId', CTX.riotId);
   $('#go').disabled = true;
@@ -140,7 +143,7 @@ $('#f').addEventListener('submit', async e => {
 });
 
 $('#liveBtn').addEventListener('click', () => {
-  const riotId = $('#riotId').value.trim(), region = $('#region').value;
+  const riotId = normRiotId($('#riotId').value), region = $('#region').value;
   if (!riotId.includes('#')) return;
   localStorage.setItem('rgapi', $('#apiKey').value.trim());
   localStorage.setItem('riotId', riotId);

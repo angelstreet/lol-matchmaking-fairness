@@ -10,7 +10,7 @@ import * as store from '../lib/db.mjs';
 export default async function handler(req, res) {
   try {
     await store.init();
-    const riotId = String(req.query.riotId || '');
+    const riotId = String(req.query.riotId || '').trim().replace(/\s*#\s*/, '#');
     const matchId = String(req.query.matchId || '');
     const region = String(req.query.region || 'euw').replace(/[^a-z]/g, '');
     if (!riotId.includes('#') || !matchId) return res.status(400).json({ error: 'riotId (Name#TAG) and matchId required' });

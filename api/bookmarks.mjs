@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const body = await readBody(req);
-      const riotId = String(body.riotId || '');
+      const riotId = String(body.riotId || '').trim().replace(/\s*#\s*/, '#');
       const region = String(body.region || 'euw').replace(/[^a-z]/g, '');
       if (!riotId.includes('#')) return res.status(400).json({ error: 'riotId must be Name#TAG' });
       if (body.op === 'remove') await store.removeBookmark(uid, riotId);
