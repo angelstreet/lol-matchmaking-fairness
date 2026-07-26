@@ -35,8 +35,9 @@ td.you + td.you { border-left:none !important; }
 .gold { color:#f2c34c; font-weight:800; }
 .tm-blue { color:var(--blue); font-weight:800; }
 .tm-red { color:var(--red); font-weight:800; }
-.badge-mvp { color:#f2c34c; font-weight:800; font-size:12px; }
-.badge-ace { color:#c77dff; font-weight:800; font-size:12px; }
+.badge-mvp, .badge-ace { border:1px solid currentColor; border-radius:99px; padding:0 6px; font-size:10px; font-weight:800; }
+.badge-mvp { color:#f2c34c; }
+.badge-ace { color:#c77dff; }
 .legend { font-size:11px; margin:-12px 0 16px; }
 .champ-c { width:1%; }
 .champ { font-weight:700; }

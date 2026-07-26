@@ -255,7 +255,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
 
 const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
 const ord = n => n + (n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th');
-const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge === 'MVP' ? '👑 MVP' : '🎖️ ACE'}</span> ` : '';
+const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge}</span>` : '';
 const placeHTML = p => p?.place ? `<span class="dim" title="In-game performance rank out of all 10 players (KDA, kill participation, damage share, CS, vision)">${ord(p.place)}</span>` : '';
 
 function laneVerdict(a, b) {
@@ -281,9 +281,14 @@ function laneFavor(a, b) {
 function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
-  const cellName = p => {
+  const cellName = (p, side) => {
     if (!p) return '<span class="dim">—</span>';
-    return `${badgeHTML(p)}${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>`;
+    const badge = badgeHTML(p);
+    const nameGa = `${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>`;
+    if (!badge) return nameGa;
+    // Badges sit toward the table's center on each side, not before the outer name, so the
+    // outer name edges (row start on blue, row end on red) stay aligned down the column.
+    return side === 'red' ? `${badge} ${nameGa}` : `${nameGa} ${badge}`;
   };
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
@@ -300,7 +305,7 @@ function matchupHTML(g) {
       const icon = fav && fav.side === side ? ` ${fav.icon}` : '';
       return `<span class="champ">${esc(p.champ)}</span>${icon}`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b, 'blue')}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, 'red')}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const cls = g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad';
@@ -327,7 +332,7 @@ function detailsHTML(g) {
         const gaCls = p.ga == null ? '' : p.ga >= 70 ? 'ga-hi' : p.ga <= 45 ? 'ga-lo' : '';
         return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + esc(p.n) + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
-          '</td><td>' + badgeHTML(p) + placeHTML(p) + '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') +
+          '</td><td>' + badgeHTML(p) + (p.badge ? ' ' : '') + placeHTML(p) + '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') +
           (p.flags && p.flags.length ? ' <span class="flag">⚠ ' + esc(p.flags.join(', ')) + '</span>' : '') + '</td></tr>';
       }).join('') + '</table>';
   }).join('');
