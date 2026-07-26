@@ -11,7 +11,8 @@ input#riotId { flex:1; min-width:200px; width:100%; padding-right:40px; }
 input#apiKey { width:270px; }
 button { background:var(--ok); color:#06251b; border:0; border-radius:8px; padding:10px 20px; font-weight:700; font-size:15px; cursor:pointer; }
 button:disabled { opacity:.5; cursor:wait; }
-.note { font-size:12px; color:var(--dim); width:100%; }
+.keyrow { display:flex; gap:14px; align-items:flex-start; width:100%; flex-wrap:wrap; }
+.note { font-size:12px; color:var(--dim); flex:1; min-width:200px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:12px; overflow:hidden; }
 .head { display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer; flex-wrap:wrap; }
 .badge { font-weight:800; font-size:12px; padding:4px 10px; border-radius:99px; white-space:nowrap; }

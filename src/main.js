@@ -6,9 +6,9 @@ const API = import.meta.env.VITE_API_URL || '';
 document.querySelector('#app').innerHTML = `
   <h1>LoL <span>Matchmaking Fairness</span> <span id="clerkBtn"></span></h1>
   <div class="sub">Was your game winnable? Ranked Solo/Duo only · pre-game form for all 10 players · proven duo detection · GA scores · official Riot API</div>
-  <form id="f">
+  <form id="f" autocomplete="off">
     <div class="combo">
-      <input id="riotId" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
+      <input id="riotId" name="riot-search" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
       <button type="button" id="bmStar" title="Bookmark this profile">☆</button>
       <div id="bmDrop"></div>
     </div>
@@ -16,15 +16,17 @@ document.querySelector('#app').innerHTML = `
     <select id="region"><option selected>euw</option><option>eune</option><option>na</option><option>kr</option></select>
     <button id="go">Find my games</button>
     <button type="button" id="liveBtn" class="live">🔴 Live game</button>
-    <input id="apiKey" placeholder="Your Riot API key (optional)" type="password">
-    <div class="note">
-      <a href="#" id="howKey">How to get your own free key (2 min) ▾</a>
-      <div id="keyHelp" style="display:none">
-        1. Go to <a href="https://developer.riotgames.com" target="_blank" rel="noreferrer">developer.riotgames.com</a> and sign in with your Riot account.<br>
-        2. Copy the <b>Development API Key</b> on the dashboard and paste it here.<br>
-        3. It expires every 24h (Riot's rule) — just grab a new one. The key stays in your browser and is only used for your own requests.
+    <div class="keyrow">
+      <input id="apiKey" name="riot-api-key" placeholder="Your Riot API key (optional)" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore>
+      <div class="note">
+        <a href="#" id="howKey">How to get your own free key (2 min) ▾</a>
+        <div id="keyHelp" style="display:none">
+          1. Go to <a href="https://developer.riotgames.com" target="_blank" rel="noreferrer">developer.riotgames.com</a> and sign in with your Riot account.<br>
+          2. Copy the <b>Development API Key</b> on the dashboard and paste it here.<br>
+          3. It expires every 24h (Riot's rule) — just grab a new one. The key stays in your browser and is only used for your own requests.
+        </div>
+        <div>No key? <b>3 free analyses/day</b> (may queue). Analyzed games are always free & instant.</div>
       </div>
-      <div>No key? <b>3 free analyses/day</b> (may queue). Analyzed games are always free & instant.</div>
     </div>
   </form>
   <div id="status"></div>
