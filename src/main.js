@@ -57,19 +57,24 @@ function renderList(games) {
   $('#list').innerHTML = games.map((g, i) => {
     if (g.remake) return `<div class="row dim">Remake — skipped</div>`;
     const when = g.when ? new Date(g.when).toLocaleString() : '';
-    const badge = g.cached && g.matchmaking ? `<span class="badge ${g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'}">${g.matchmaking}</span>` : '';
-    return `<div class="row">
-      <span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>
-      <span>${esc(g.champ)} ${esc(g.kda)}</span>
-      <span class="dim">${esc(g.duration)} · ${when}</span>
-      ${badge}
-      <button class="mini" data-mid="${esc(g.matchId)}" data-i="${i}">${g.cached ? '✓ View' : 'Analyze'}</button>
+    const badge = g.cached && g.matchmaking ? `<span class="badge ${g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'}" id="b${i}">${g.matchmaking}</span>` : `<span id="b${i}"></span>`;
+    return `<div class="gcard" id="g${i}">
+      <div class="row">
+        <span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>
+        <span>${esc(g.champ)} ${esc(g.kda)}</span>
+        <span class="dim">${esc(g.duration)} · ${when}</span>
+        ${badge}
+        <button class="mini" data-mid="${esc(g.matchId)}" data-i="${i}">${g.cached ? '✓ View' : 'Analyze'}</button>
+      </div>
+      <div class="details" id="d${i}"></div>
     </div>`;
   }).join('');
-  document.querySelectorAll('.mini').forEach(b => b.addEventListener('click', () => analyze(b.dataset.mid, b)));
+  document.querySelectorAll('.mini').forEach(b => b.addEventListener('click', () => analyze(b.dataset.mid, b, b.dataset.i)));
 }
 
-async function analyze(matchId, btn, attempt = 0) {
+async function analyze(matchId, btn, i, attempt = 0) {
+  const card = document.getElementById('g' + i);
+  if (btn.dataset.loaded) { card.classList.toggle('open'); btn.textContent = card.classList.contains('open') ? '▴ Hide' : '✓ View'; return; }
   btn.disabled = true; btn.textContent = '…';
   $('#status').innerHTML = `<span class="spin">⏳</span> Analyzing ${esc(matchId)} — up to ~1 min for a new game…`;
   try {
@@ -78,11 +83,15 @@ async function analyze(matchId, btn, attempt = 0) {
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry
       $('#status').innerHTML = `<span class="spin">⏳</span> Free analyzer busy — retrying (${attempt + 1})…`;
       await new Promise(res => setTimeout(res, 20000));
-      return analyze(matchId, btn, attempt + 1);
+      return analyze(matchId, btn, i, attempt + 1);
     }
     if (!r.ok) throw new Error(data.error || r.status);
-    renderCard(data.entry);
-    btn.textContent = '✓ View'; btn.disabled = false;
+    const g = data.entry;
+    document.getElementById('d' + i).innerHTML = detailsHTML(g);
+    const badgeEl = document.getElementById('b' + i);
+    if (badgeEl) { badgeEl.className = 'badge ' + (g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'); badgeEl.textContent = g.matchmaking; }
+    btn.dataset.loaded = '1'; btn.textContent = '▴ Hide'; btn.disabled = false;
+    card.classList.add('open');
     $('#status').textContent = data.cached ? 'Loaded from shared cache (instant).' : 'Analysis complete — cached for everyone from now on.';
   } catch (err) {
     $('#status').innerHTML = '❌ ' + esc(err.message);
@@ -90,10 +99,37 @@ async function analyze(matchId, btn, attempt = 0) {
   }
 }
 
-function renderCard(g) {
+const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+
+function laneVerdict(a, b) {
+  if (a == null || b == null) return '<span class="dim">·</span>';
+  const d = a - b, ad = Math.abs(d);
+  if (ad <= 8) return '<span class="lv-even">✅ even</span>';
+  const icon = ad <= 18 ? '⚠' : '🔴';
+  return d > 0 ? `<span class="lv-blue">${icon} ◀ +${ad}</span>` : `<span class="lv-red">${icon} +${ad} ▶</span>`;
+}
+
+function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
+  const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
+  const cell = p => p ? `${esc(p.n)} · ${esc(p.champ)} <b>GA ${p.ga ?? '–'}</b>` : '<span class="dim">—</span>';
+  const meCls = p => p && p.n.replace('#', '-').toLowerCase() === meName ? ' class="you"' : '';
+  const rows = ROLES.map(role => {
+    const b = by('blue', role), r = by('red', role);
+    if (!b && !r) return '';
+    return `<tr><td${meCls(b)}>${cell(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${meCls(r)} class="rgt">${cell(r)}</td></tr>`;
+  }).join('');
+  const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const cls = g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad';
-  const when = g.when ? new Date(g.when).toLocaleString() : '';
+  return `<table class="matchup">
+    <tr><th>BLUE${g.userTeam === 'blue' ? ' (you)' : ''}</th><th class="mid-v">Matchup</th><th class="rgt">RED${g.userTeam === 'red' ? ' (you)' : ''}</th></tr>
+    ${rows}
+    <tr class="teamrow"><td><b>TEAM · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${cls}">${g.matchmaking}</span></td><td class="rgt"><b>TEAM · avg GA ${gR ?? '–'}</b></td></tr>
+  </table>`;
+}
+
+function detailsHTML(g) {
+  const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const teams = ['blue', 'red'].map(t => {
     const rows = (g.players || []).filter(p => p.team === t);
     if (!rows.length) return '';
@@ -111,13 +147,5 @@ function renderCard(g) {
       }).join('') + '</table>';
   }).join('');
   const duos = (g.duos || []).map(d => '<div class="duo">🔗 DUO (' + esc(d[3]) + '): ' + esc(d[0]) + ' + ' + esc(d[1]) + ' — ' + esc(d[2]) + '</div>').join('');
-  $('#out').innerHTML = '<div class="card open">' +
-    '<div class="head">' +
-    '<span class="badge ' + cls + '">' + g.matchmaking + '</span>' +
-    '<span class="res-' + g.result[0] + '">' + g.result + '</span>' +
-    '<span>' + esc(g.user?.champ) + ' ' + esc(g.user?.kda) + '</span>' +
-    '<span class="dim">' + esc(g.duration) + ' · ' + when + '</span>' +
-    '<span class="one">' + esc(g.oneLiner) + '</span></div>' +
-    '<div class="details">' + teams + duos + '</div></div>';
-  $('#out').scrollIntoView({ behavior: 'smooth' });
+  return '<div class="one" style="margin-bottom:8px">' + esc(g.oneLiner) + '</div>' + matchupHTML(g) + teams + duos;
 }

@@ -29,6 +29,15 @@ th { color:var(--dim); font-weight:600; }
 .ga-hi { color:var(--ok); font-weight:700; } .ga-lo { color:var(--bad); font-weight:700; }
 #status { color:var(--dim); margin:20px 0; }
 .row { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-bottom:8px; flex-wrap:wrap; }
+.gcard { background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; }
+.gcard .row { background:none; border:0; border-radius:0; margin:0; }
+.gcard .details { display:none; border-top:1px solid var(--line); padding:12px 16px; overflow-x:auto; }
+.gcard.open .details { display:block; }
+.matchup { margin-bottom:18px; }
+.matchup .mid-v { text-align:center; white-space:nowrap; }
+.matchup .rgt { text-align:right; }
+.matchup .teamrow td { border-top:2px solid var(--line); padding-top:8px; }
+.lv-even { color:var(--ok); } .lv-blue { color:var(--blue); font-weight:700; } .lv-red { color:var(--red); font-weight:700; }
 .row .dim, .dim { color:var(--dim); font-size:13px; }
 .mini { margin-left:auto; padding:6px 14px; font-size:13px; }
 .note a { color:var(--ok); }
