@@ -7,9 +7,10 @@ import matches from './api/matches.mjs';
 import analyze from './api/analyze.mjs';
 import history from './api/history.mjs';
 import bookmarks from './api/bookmarks.mjs';
+import live from './api/live.mjs';
 
 const PORT = process.env.PORT || 3131;
-const routes = { '/api/matches': matches, '/api/analyze': analyze, '/api/history': history, '/api/bookmarks': bookmarks };
+const routes = { '/api/matches': matches, '/api/analyze': analyze, '/api/history': history, '/api/bookmarks': bookmarks, '/api/live': live };
 
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

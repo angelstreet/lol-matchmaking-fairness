@@ -15,7 +15,8 @@ button:disabled { opacity:.5; cursor:wait; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:12px; overflow:hidden; }
 .head { display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer; flex-wrap:wrap; }
 .badge { font-weight:800; font-size:12px; padding:4px 10px; border-radius:99px; white-space:nowrap; }
-.b-ok { background:#123527; color:var(--ok);} .b-mid{ background:#3a2d10; color:var(--mid);} .b-bad{ background:#3a1616; color:var(--bad);}
+.b-ok { background:#123527; color:var(--ok);} .b-mid{ background:#3a2d10; color:var(--mid);} .b-bad{ background:#3a1616; color:var(--bad);} .b-live{ background:#3a1616; color:#e05d5d; }
+.live { background:#e05d5d; color:#2a0d0d; }
 .res-V { color:var(--ok); font-weight:700; } .res-D { color:var(--bad); font-weight:700; }
 .one { color:var(--dim); font-size:13px; flex-basis:100%; }
 .details { display:none; border-top:1px solid var(--line); padding:12px 16px; overflow-x:auto; }

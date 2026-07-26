@@ -15,6 +15,7 @@ document.querySelector('#app').innerHTML = `
     <select id="games"><option>3</option><option selected>5</option><option>10</option></select>
     <select id="region"><option selected>euw</option><option>eune</option><option>na</option><option>kr</option></select>
     <button id="go">Find my games</button>
+    <button type="button" id="liveBtn" class="live">🔴 Live game</button>
     <input id="apiKey" placeholder="Your Riot API key (optional)" type="password">
     <div class="note">
       <a href="#" id="howKey">How to get your own free key (2 min) ▾</a>
@@ -135,6 +136,57 @@ $('#f').addEventListener('submit', async e => {
   } catch (err) { $('#status').innerHTML = '❌ ' + esc(err.message); }
   $('#go').disabled = false;
 });
+
+$('#liveBtn').addEventListener('click', () => {
+  const riotId = $('#riotId').value.trim(), region = $('#region').value;
+  if (!riotId.includes('#')) return;
+  localStorage.setItem('rgapi', $('#apiKey').value.trim());
+  localStorage.setItem('riotId', riotId);
+  checkLive(riotId, region);
+});
+
+async function checkLive(riotId, region, attempt = 0) {
+  $('#liveBtn').disabled = true;
+  $('#status').innerHTML = '<span class="spin">⏳</span> Checking for a live game…';
+  try {
+    const r = await fetch(`${API}/api/live?riotId=${encodeURIComponent(riotId)}&region=${region}`, { headers: hdrs() });
+    const data = await r.json();
+    if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry
+      $('#status').innerHTML = `<span class="spin">⏳</span> Free analyzer busy — retrying (${attempt + 1})…`;
+      await new Promise(res => setTimeout(res, 20000));
+      return checkLive(riotId, region, attempt + 1);
+    }
+    if (!r.ok) throw new Error(data.error || r.status);
+    if (data.inGame === false) { $('#status').textContent = 'Not in a game right now.'; }
+    else if (data.unsupported) { $('#status').textContent = 'In game, but not Ranked Solo/Duo.'; }
+    else {
+      CTX = { riotId, region };
+      renderLive(data.entry);
+      $('#status').textContent = 'Live game found.';
+    }
+  } catch (err) {
+    $('#status').innerHTML = '❌ ' + esc(err.message);
+  }
+  $('#liveBtn').disabled = false;
+}
+
+function renderLive(g) {
+  document.getElementById('liveCard')?.remove();
+  const mins = Math.max(0, Math.round((Date.now() - new Date(g.when).getTime()) / 60000));
+  const card = document.createElement('div');
+  card.className = 'gcard open';
+  card.id = 'liveCard';
+  card.innerHTML = `
+    <div class="row">
+      <span class="badge b-live">LIVE</span>
+      <span>LIVE — ${esc(g.user?.champ || '')} · started ${mins} min ago</span>
+    </div>
+    <div class="details">
+      <div class="dim" style="margin-bottom:8px">Positions are inferred from each player's recent games (spectator data has no assigned roles).</div>
+      ${detailsHTML(g)}
+    </div>`;
+  $('#list').insertBefore(card, $('#list').firstChild);
+}
 
 async function loadHistory(offset) {
   try {
