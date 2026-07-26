@@ -23,7 +23,20 @@ table { width:100%; border-collapse:collapse; font-size:13px; margin:8px 0 16px;
 th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
 th { color:var(--dim); font-weight:600; }
 .t-blue td:first-child { border-left:3px solid var(--blue);} .t-red td:first-child { border-left:3px solid var(--red);}
-.you { background:#1d2430; }
+.you { background:rgba(242,195,76,.10); }
+.you td:first-child, td.you { border-left:3px solid #f2c34c !important; }
+.gold { color:#f2c34c; font-weight:800; }
+.tm-blue { color:var(--blue); font-weight:800; }
+.tm-red { color:var(--red); font-weight:800; }
+.badge-mvp { color:#f2c34c; font-weight:800; font-size:12px; }
+.badge-ace { color:#c77dff; font-weight:800; font-size:12px; }
+.legend { font-size:11px; margin:-12px 0 16px; }
+.champ-c { width:1%; }
+.champ { font-weight:700; }
+#bmStar { background:none; border:1px solid var(--line); color:#f2c34c; font-size:17px; padding:8px 12px; }
+#bmStar.starred { background:#2a2410; }
+#bmSel { max-width:170px; }
+#clerkBtn { float:right; font-size:14px; }
 .flag { font-size:11px; color:var(--mid); }
 .duo { color:var(--mid); font-size:13px; margin:4px 0; }
 .ga-hi { color:var(--ok); font-weight:700; } .ga-lo { color:var(--bad); font-weight:700; }

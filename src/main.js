@@ -4,10 +4,12 @@ import './style.css';
 const API = import.meta.env.VITE_API_URL || '';
 
 document.querySelector('#app').innerHTML = `
-  <h1>LoL <span>Matchmaking Fairness</span></h1>
+  <h1>LoL <span>Matchmaking Fairness</span> <span id="clerkBtn"></span></h1>
   <div class="sub">Was your game winnable? Ranked Solo/Duo only · pre-game form for all 10 players · proven duo detection · GA scores · official Riot API</div>
   <form id="f">
+    <select id="bmSel" title="Bookmarked profiles"><option value="">★</option></select>
     <input id="riotId" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required>
+    <button type="button" id="bmStar" title="Bookmark this profile">☆</button>
     <select id="games"><option>3</option><option selected>5</option><option>10</option></select>
     <select id="region"><option selected>euw</option><option>eune</option><option>na</option><option>kr</option></select>
     <button id="go">Find my games</button>
@@ -39,6 +41,72 @@ $('#howKey').addEventListener('click', e => { e.preventDefault(); const k = $('#
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-key': k } : {}; };
 let CTX = { riotId: '', region: 'euw' };
+
+// ---- bookmarks: localStorage always; synced to the Clerk account when signed in ----
+let clerk = null;
+const getBM = () => { try { return JSON.parse(localStorage.getItem('bookmarks') || '[]'); } catch { return []; } };
+const isBM = id => getBM().some(b => b.riotId.toLowerCase() === id.toLowerCase());
+const setBM = l => { localStorage.setItem('bookmarks', JSON.stringify(l)); renderBM(); };
+function renderBM() {
+  $('#bmSel').innerHTML = '<option value="">★</option>' + getBM().map(b => `<option value="${esc(b.riotId)}|${esc(b.region)}">★ ${esc(b.riotId)}</option>`).join('');
+  updateStar();
+}
+function updateStar() {
+  const on = isBM($('#riotId').value.trim());
+  $('#bmStar').textContent = on ? '★' : '☆';
+  $('#bmStar').classList.toggle('starred', on);
+}
+async function authHdr() { try { const t = clerk?.session ? await clerk.session.getToken() : null; return t ? { Authorization: 'Bearer ' + t } : {}; } catch { return {}; } }
+async function serverBM(op, riotId, region) {
+  const h = await authHdr(); if (!h.Authorization) return null;
+  try {
+    const r = await fetch(`${API}/api/bookmarks`, op
+      ? { method: 'POST', headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ op, riotId, region }) }
+      : { headers: h });
+    if (!r.ok) return null;
+    return (await r.json()).bookmarks;
+  } catch { return null; }
+}
+$('#bmStar').addEventListener('click', async () => {
+  const riotId = $('#riotId').value.trim();
+  if (!riotId.includes('#')) return;
+  const region = $('#region').value, on = isBM(riotId);
+  setBM(on ? getBM().filter(b => b.riotId.toLowerCase() !== riotId.toLowerCase()) : [...getBM(), { riotId, region }]);
+  const synced = await serverBM(on ? 'remove' : 'add', riotId, region);
+  if (synced) setBM(synced);
+});
+$('#bmSel').addEventListener('change', () => {
+  const v = $('#bmSel').value; if (!v) return;
+  const [riotId, region] = v.split('|');
+  $('#riotId').value = riotId; $('#region').value = region || 'euw'; $('#bmSel').value = '';
+  $('#f').requestSubmit();
+});
+$('#riotId').addEventListener('input', updateStar);
+renderBM();
+
+// ---- optional Clerk sign-in: accounts, cross-device bookmarks, per-user quota ----
+const CLERK_PK = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+if (CLERK_PK) {
+  import('@clerk/clerk-js').then(async ({ Clerk }) => {
+    clerk = new Clerk(CLERK_PK);
+    await clerk.load();
+    const el = $('#clerkBtn');
+    if (clerk.user) {
+      clerk.mountUserButton(el);
+      const synced = await serverBM(null);
+      if (synced) {
+        const merged = [...synced];
+        for (const b of getBM()) if (!merged.some(m => m.riotId.toLowerCase() === b.riotId.toLowerCase())) { merged.push(b); await serverBM('add', b.riotId, b.region); }
+        setBM(merged);
+      }
+    } else {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'mini'; btn.textContent = 'Sign in';
+      btn.addEventListener('click', () => clerk.openSignIn());
+      el.appendChild(btn);
+    }
+  }).catch(() => {});
+}
 
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
@@ -125,32 +193,45 @@ async function analyze(matchId, btn, i, attempt = 0) {
 }
 
 const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+const ord = n => n + (n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th');
+const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge === 'MVP' ? '👑 MVP' : '🎖️ ACE'}</span> ` : '';
+const placeHTML = p => p?.place ? `<span class="dim" title="In-game performance rank out of all 10 players (KDA, kill participation, damage share, CS, vision)">${ord(p.place)}</span>` : '';
 
 function laneVerdict(a, b) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
-  if (ad <= 8) return '<span class="lv-even">✅ even</span>';
-  const icon = ad <= 18 ? '⚠' : '🔴';
-  return d > 0 ? `<span class="lv-blue">${icon} ◀ +${ad}</span>` : `<span class="lv-red">${icon} +${ad} ▶</span>`;
+  if (ad <= 8) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points">⚖️ even</span>`;
+  const heavy = ad > 18;
+  const icon = heavy ? '🔥' : '⚠️';
+  const strength = heavy ? 'HEAVILY favored' : 'favored';
+  if (d > 0) return `<span class="lv-blue" title="Blue side ${strength}: +${ad} GA advantage before the game started">${icon} ◀ BLUE +${ad}</span>`;
+  return `<span class="lv-red" title="Red side ${strength}: +${ad} GA advantage before the game started">${icon} RED +${ad} ▶</span>`;
 }
 
 function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
-  const cell = p => p ? `${esc(p.n)} · ${esc(p.champ)} <b>GA ${p.ga ?? '–'}</b>` : '<span class="dim">—</span>';
+  const champ = p => p ? `<span class="champ">${esc(p.champ)}</span>` : '<span class="dim">—</span>';
+  const cellName = p => {
+    if (!p) return '<span class="dim">—</span>';
+    const isMe = p.n.replace('#', '-').toLowerCase() === meName;
+    return `${isMe ? '<span class="gold">⭐</span> ' : ''}${badgeHTML(p)}${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>`;
+  };
   const meCls = p => p && p.n.replace('#', '-').toLowerCase() === meName ? ' class="you"' : '';
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
     if (!b && !r) return '';
-    return `<tr><td${meCls(b)}>${cell(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${meCls(r)} class="rgt">${cell(r)}</td></tr>`;
+    return `<tr><td class="champ-c"${meCls(b)}>${champ(b)}</td><td${meCls(b)}>${cellName(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td class="rgt"${meCls(r)}>${cellName(r)}</td><td class="champ-c rgt"${meCls(r)}>${champ(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const cls = g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad';
+  const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
   return `<table class="matchup">
-    <tr><th>BLUE${g.userTeam === 'blue' ? ' (you)' : ''}</th><th class="mid-v">Matchup</th><th class="rgt">RED${g.userTeam === 'red' ? ' (you)' : ''}</th></tr>
+    <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">⭐ you</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">⭐ you</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td><b>TEAM · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${cls}">${g.matchmaking}</span></td><td class="rgt"><b>TEAM · avg GA ${gR ?? '–'}</b></td></tr>
-  </table>`;
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${cls}">${g.matchmaking}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
+  </table>
+  <div class="dim legend">⚖️ even (GA gap ≤ 8) · ⚠️ favored (9–18) · 🔥 heavily favored (>18) — the arrow points toward the favored side, based on pre-game data only</div>`;
 }
 
 function detailsHTML(g) {
@@ -159,15 +240,15 @@ function detailsHTML(g) {
     const rows = (g.players || []).filter(p => p.team === t);
     if (!rows.length) return '';
     const won = (g.result === 'Victory') === (g.userTeam === t);
-    return '<h4>' + t.toUpperCase() + (g.userTeam === t ? ' (your team)' : '') + (won ? ' — won' : '') +
+    return '<h4><span class="tm-' + t + '">' + t.toUpperCase() + '</span>' + (g.userTeam === t ? ' <span class="gold">⭐ your team</span>' : '') + ' · ' + (won ? 'win' : 'loss') +
       (g.teamGA && g.teamGA[t] ? ' · avg GA ' + g.teamGA[t] : '') + '</h4>' +
-      '<table><tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>GA</th><th>Form (pre-game)</th></tr>' +
+      '<table><tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>Perf</th><th>GA</th><th>Form (pre-game)</th></tr>' +
       rows.map(p => {
         const isMe = p.n.replace('#', '-').toLowerCase() === meName;
         const gaCls = p.ga == null ? '' : p.ga >= 70 ? 'ga-hi' : p.ga <= 45 ? 'ga-lo' : '';
-        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + esc(p.n) + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
+        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + (isMe ? '<span class="gold">⭐</span> ' : '') + esc(p.n) + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
-          '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') +
+          '</td><td>' + badgeHTML(p) + placeHTML(p) + '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') +
           (p.flags && p.flags.length ? ' <span class="flag">⚠ ' + esc(p.flags.join(', ')) + '</span>' : '') + '</td></tr>';
       }).join('') + '</table>';
   }).join('');

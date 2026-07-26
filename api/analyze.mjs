@@ -4,6 +4,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { makeClient, resolveAccount, analyzeMatch } from '../lib/riot.mjs';
+import { userFromReq } from '../lib/clerk.mjs';
 import * as store from '../lib/db.mjs';
 
 export default async function handler(req, res) {
@@ -27,10 +28,14 @@ export default async function handler(req, res) {
     let key = userKey;
     let usingShared = false;
     let lockHolder = null;
+    let quotaKey = ip;
 
     if (!key) {
       if (!sharedKey) return res.status(400).json({ error: 'No API key: paste your own Riot key (developer.riotgames.com)' });
-      const q = await store.checkQuota(ip);
+      // signed-in users get a per-account quota (and a bit more of it) instead of per-IP
+      const uid = await userFromReq(req);
+      quotaKey = uid || ip;
+      const q = await store.checkQuota(quotaKey, uid ? 5 : 3);
       if (!q.allowed) return res.status(429).json({ error: `Free limit reached (${q.limit}/day). Paste your own free Riot API key for unlimited analyses.`, quota: q });
       lockHolder = randomUUID();
       if (!(await store.acquireLock(lockHolder))) {
@@ -46,7 +51,7 @@ export default async function handler(req, res) {
       if (!acct) return res.status(404).json({ error: 'account not found' });
       const entry = await analyzeMatch(c, store, { name, tag, puuid: acct.puuid, matchId });
       if (!entry.remake) await store.putAnalysis(matchId, summoner, entry);
-      if (usingShared) await store.incQuota(ip);
+      if (usingShared) await store.incQuota(quotaKey);
       res.status(200).json({ cached: false, entry });
     } finally {
       if (lockHolder) await store.releaseLock(lockHolder);

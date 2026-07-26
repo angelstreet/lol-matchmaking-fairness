@@ -10,7 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@libsql/client": "^0.14.0"
+    "@clerk/clerk-js": "^5.0.0",
+    "@libsql/client": "^0.14.0",
+    "jose": "^5.0.0"
   },
   "devDependencies": {
     "vite": "^6.0.0"
