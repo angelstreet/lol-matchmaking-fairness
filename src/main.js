@@ -24,7 +24,12 @@ document.querySelector('#app').innerHTML = `
   </form>
   <div id="status"></div>
   <div id="list"></div>
-  <div id="out"></div>`;
+  <div id="histWrap" style="display:none">
+    <h3 style="margin:24px 0 8px">📜 Analyzed history</h3>
+    <div class="dim" style="margin-bottom:8px">Older games of this player already in the database — always free & instant.</div>
+    <div id="hist"></div>
+    <div id="histNav" class="dim" style="display:flex;gap:12px;align-items:center"></div>
+  </div>`;
 
 const $ = s => document.querySelector(s);
 $('#apiKey').value = localStorage.getItem('rgapi') || '';
@@ -42,34 +47,54 @@ $('#f').addEventListener('submit', async e => {
   localStorage.setItem('riotId', CTX.riotId);
   $('#go').disabled = true;
   $('#status').innerHTML = '<span class="spin">⏳</span> Fetching recent ranked games…';
-  $('#list').innerHTML = ''; $('#out').innerHTML = '';
+  $('#list').innerHTML = '';
   try {
     const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(CTX.riotId)}&games=${$('#games').value}&region=${CTX.region}`, { headers: hdrs() });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.status);
-    renderList(data.games);
+    renderRows(data.games, $('#list'), 'm');
     $('#status').textContent = data.games.length ? 'Pick a game to analyze — ✓ games are already analyzed (free & instant).' : 'No ranked solo games found.';
+    loadHistory(0);
   } catch (err) { $('#status').innerHTML = '❌ ' + esc(err.message); }
   $('#go').disabled = false;
 });
 
-function renderList(games) {
-  $('#list').innerHTML = games.map((g, i) => {
+async function loadHistory(offset) {
+  try {
+    const r = await fetch(`${API}/api/history?riotId=${encodeURIComponent(CTX.riotId)}&offset=${offset}&limit=10`);
+    const d = await r.json();
+    if (!r.ok || !d.total) { $('#histWrap').style.display = 'none'; return; }
+    $('#histWrap').style.display = 'block';
+    renderRows(d.games, $('#hist'), 'h' + offset + '_');
+    const from = offset + 1, to = offset + d.games.length;
+    $('#histNav').innerHTML =
+      (offset > 0 ? `<button class="mini" id="hNewer">◀ 10 newer</button>` : '') +
+      `<span>${from}–${to} of ${d.total} analyzed games</span>` +
+      (to < d.total ? `<button class="mini" id="hOlder">10 older ▶</button>` : '');
+    const newer = $('#hNewer'), older = $('#hOlder');
+    if (newer) newer.addEventListener('click', () => loadHistory(Math.max(0, offset - 10)));
+    if (older) older.addEventListener('click', () => loadHistory(offset + 10));
+  } catch { $('#histWrap').style.display = 'none'; }
+}
+
+function renderRows(games, container, prefix) {
+  container.innerHTML = games.map((g, i) => {
     if (g.remake) return `<div class="row dim">Remake — skipped</div>`;
+    const key = prefix + i;
     const when = g.when ? new Date(g.when).toLocaleString() : '';
-    const badge = g.cached && g.matchmaking ? `<span class="badge ${g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'}" id="b${i}">${g.matchmaking}</span>` : `<span id="b${i}"></span>`;
-    return `<div class="gcard" id="g${i}">
+    const badge = g.cached && g.matchmaking ? `<span class="badge ${g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'}" id="b${key}">${g.matchmaking}</span>` : `<span id="b${key}"></span>`;
+    return `<div class="gcard" id="g${key}">
       <div class="row">
         <span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>
         <span>${esc(g.champ)} ${esc(g.kda)}</span>
         <span class="dim">${esc(g.duration)} · ${when}</span>
         ${badge}
-        <button class="mini" data-mid="${esc(g.matchId)}" data-i="${i}">${g.cached ? '✓ View' : 'Analyze'}</button>
+        <button class="mini" data-mid="${esc(g.matchId)}" data-key="${key}">${g.cached ? '✓ View' : 'Analyze'}</button>
       </div>
-      <div class="details" id="d${i}"></div>
+      <div class="details" id="d${key}"></div>
     </div>`;
   }).join('');
-  document.querySelectorAll('.mini').forEach(b => b.addEventListener('click', () => analyze(b.dataset.mid, b, b.dataset.i)));
+  container.querySelectorAll('.mini').forEach(b => b.addEventListener('click', () => analyze(b.dataset.mid, b, b.dataset.key)));
 }
 
 async function analyze(matchId, btn, i, attempt = 0) {

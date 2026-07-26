@@ -5,9 +5,10 @@
 import { createServer } from 'node:http';
 import matches from './api/matches.mjs';
 import analyze from './api/analyze.mjs';
+import history from './api/history.mjs';
 
 const PORT = process.env.PORT || 3131;
-const routes = { '/api/matches': matches, '/api/analyze': analyze };
+const routes = { '/api/matches': matches, '/api/analyze': analyze, '/api/history': history };
 
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
