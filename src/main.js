@@ -33,7 +33,6 @@ document.querySelector('#app').innerHTML = `
   <div id="list"></div>
   <div id="histWrap" style="display:none">
     <h3 style="margin:24px 0 8px">📜 Analyzed history</h3>
-    <div class="dim" style="margin-bottom:8px">Older games of this player already in the database — always free & instant.</div>
     <div id="hist"></div>
     <div id="histNav" class="dim" style="display:flex;gap:12px;align-items:center"></div>
   </div>`;
@@ -185,6 +184,7 @@ function renderLive(g) {
     <div class="row">
       <span class="badge b-live">LIVE</span>
       <span>LIVE — ${esc(g.user?.champ || '')} · started ${mins} min ago</span>
+      <span class="one-h" title="${esc(g.oneLiner || '')}">${esc(g.oneLiner || '')}</span>
     </div>
     <div class="details">
       <div class="dim" style="margin-bottom:8px">Positions are inferred from each player's recent games (spectator data has no assigned roles).</div>
@@ -200,6 +200,7 @@ async function loadHistory(offset) {
     if (!r.ok || !d.total) { $('#histWrap').style.display = 'none'; return; }
     $('#histWrap').style.display = 'block';
     renderRows(d.games, $('#hist'), 'h' + offset + '_');
+    if (d.total <= 10) { $('#histNav').innerHTML = ''; return; }
     const from = offset + 1, to = offset + d.games.length;
     $('#histNav').innerHTML =
       (offset > 0 ? `<button class="mini" id="hNewer">◀ 10 newer</button>` : '') +
@@ -217,12 +218,14 @@ function renderRows(games, container, prefix) {
     const key = prefix + i;
     const when = g.when ? new Date(g.when).toLocaleString() : '';
     const badge = g.cached && g.matchmaking ? `<span class="badge ${g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'}" id="b${key}">${g.matchmaking}</span>` : `<span id="b${key}"></span>`;
+    const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
         <span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>
         <span>${esc(g.champ)} ${esc(g.kda)}</span>
         <span class="dim">${esc(g.duration)} · ${when}</span>
         ${badge}
+        <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
         <button class="mini" data-mid="${esc(g.matchId)}" data-key="${key}">${g.cached ? '✓ View' : 'Analyze'}</button>
       </div>
       <div class="details" id="d${key}"></div>
@@ -249,9 +252,11 @@ async function analyze(matchId, btn, i, attempt = 0) {
     document.getElementById('d' + i).innerHTML = detailsHTML(g);
     const badgeEl = document.getElementById('b' + i);
     if (badgeEl) { badgeEl.className = 'badge ' + (g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'); badgeEl.textContent = g.matchmaking; }
+    const oneEl = document.getElementById('o' + i);
+    if (oneEl) { oneEl.textContent = g.oneLiner || ''; oneEl.title = g.oneLiner || ''; }
     btn.dataset.loaded = '1'; btn.textContent = '▴ Hide'; btn.disabled = false;
     card.classList.add('open');
-    $('#status').textContent = data.cached ? 'Loaded from shared cache (instant).' : 'Analysis complete — cached for everyone from now on.';
+    $('#status').textContent = data.cached ? '' : 'Analysis complete — cached for everyone from now on.';
   } catch (err) {
     $('#status').innerHTML = '❌ ' + esc(err.message);
     btn.textContent = 'Analyze'; btn.disabled = false;
@@ -262,6 +267,31 @@ const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
 const ord = n => n + (n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th');
 const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge}</span>` : '';
 const placeHTML = p => p?.place ? `<span class="dim" title="In-game performance rank out of all 10 players (KDA, kill participation, damage share, CS, vision)">${ord(p.place)}</span>` : '';
+
+// Shared compact chip group for a player's flags/duo/streak/cspm — used identically in the
+// summary matchup table and the per-team details tables so both views render the same way.
+function chipsHTML(p) {
+  if (!p) return '';
+  const c = [];
+  if (p.flags?.includes('autofill')) c.push(['⚠️ autofill', 'Playing outside their usual role']);
+  if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion']);
+  if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
+  if (p.duo) c.push(['🔗 duo', 'Queued with a teammate — proven by shared pre-game matches']);
+  if (p.streak) {
+    const n = parseInt(p.streak), w = p.streak.endsWith('W');
+    if (n >= 3) c.push([w ? `🔥 ${n}W` : `❄️ ${n}L`, (w ? 'Win' : 'Loss') + ' streak entering this game']);
+  }
+  if (p.cspm != null && p.pos !== 'UTILITY') {
+    const v = p.cspm;
+    const [cls, tip] = v >= 9 ? ['cs-elite', 'Elite farming (9+ per minute)']
+      : v >= 8 ? ['cs-good', 'Good farming (8+ per minute)']
+      : v >= 7 ? ['cs-ok', 'Decent farming (7+ per minute)']
+      : v >= 5.5 ? ['', 'Average farming']
+      : ['cs-low', 'Low farming (under 5.5 per minute)'];
+    c.push([`${v} cs`, tip, cls]);
+  }
+  return c.map(([l, t, cls]) => `<span class="chip${cls ? ' ' + cls : ''}" title="${esc(t)}">${l}</span>`).join('');
+}
 
 function laneVerdict(a, b) {
   if (a == null || b == null) return '<span class="dim">·</span>';
@@ -286,36 +316,15 @@ function laneFavor(a, b) {
 function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
-  const chips = p => {
-    if (!p) return '';
-    const c = [];
-    if (p.flags?.includes('otp')) c.push(['🎯 OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
-    if (p.flags?.includes('autofill')) c.push(['⚠ autofill', 'Playing outside their usual role']);
-    if (p.flags?.includes('first-time')) c.push(['🆕 first champ', 'No recent games and low mastery on this champion']);
-    if (p.duo) c.push(['🔗 duo', 'Queued with a teammate — proven by shared pre-game matches']);
-    if (p.streak) {
-      const n = parseInt(p.streak), w = p.streak.endsWith('W');
-      if (n >= 3) c.push([w ? `🔥 ${n}W streak` : `❄️ ${n}L streak`, (w ? 'Win' : 'Loss') + ' streak entering this game']);
-    }
-    if (p.cspm != null && p.pos !== 'UTILITY') {
-      const v = p.cspm;
-      const [lab, tip] = v >= 9 ? [`💎 ${v} cs/m`, 'Elite farming (9+ per minute)']
-        : v >= 8 ? [`🟢 ${v} cs/m`, 'Good farming (8+ per minute)']
-        : v >= 7 ? [`🟡 ${v} cs/m`, 'Decent farming (7+ per minute)']
-        : v >= 5.5 ? [`${v} cs/m`, 'Average farming']
-        : [`🔻 ${v} cs/m`, 'Low farming (under 5.5 per minute)'];
-      c.push([lab, tip]);
-    }
-    return c.length ? '<div class="chips">' + c.map(([l, t]) => `<span class="chip" title="${esc(t)}">${l}</span>`).join('') + '</div>' : '';
-  };
   const cellName = (p, side) => {
     if (!p) return '<span class="dim">—</span>';
     const badge = badgeHTML(p);
-    const nameGa = `${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>${chips(p)}`;
-    if (!badge) return nameGa;
-    // Badges sit toward the table's center on each side, not before the outer name, so the
-    // outer name edges (row start on blue, row end on red) stay aligned down the column.
-    return side === 'red' ? `${badge} ${nameGa}` : `${nameGa} ${badge}`;
+    const pname = `<span class="pname">${esc(p.n)} <b>GA ${p.ga ?? '–'}</b></span>`;
+    const chips = chipsHTML(p);
+    // Badges and chips sit toward the table's center on each side, not before the outer name,
+    // so the outer name edges (row start on blue, row end on red) stay aligned down the column.
+    const items = side === 'red' ? [chips, badge, pname] : [pname, badge, chips];
+    return `<span class="pcell">${items.filter(Boolean).join('')}</span>`;
   };
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
@@ -341,8 +350,7 @@ function matchupHTML(g) {
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
     <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${cls}">${g.matchmaking}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
-  </table>
-  <div class="dim legend">EVEN (GA gap ≤ 8) · ⚠️ = favored (9–18), 🔥 = heavily favored (>18), shown next to the favored champion — based on pre-game data only</div>`;
+  </table>`;
 }
 
 function detailsHTML(g) {
@@ -353,16 +361,17 @@ function detailsHTML(g) {
     const won = (g.result === 'Victory') === (g.userTeam === t);
     return '<h4><span class="tm-' + t + '">' + t.toUpperCase() + '</span>' + (g.userTeam === t ? ' <span class="gold">YOU</span>' : '') + ' · ' + (won ? 'win' : 'loss') +
       (g.teamGA && g.teamGA[t] ? ' · avg GA ' + g.teamGA[t] : '') + '</h4>' +
-      '<table><tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>Perf</th><th>GA</th><th>Form (pre-game)</th></tr>' +
+      '<table><tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>Perf</th><th>GA</th><th title="Wins-losses in their last 5 ranked games before this one">Form (last 5 before game)</th></tr>' +
       rows.map(p => {
         const isMe = p.n.replace('#', '-').toLowerCase() === meName;
         const gaCls = p.ga == null ? '' : p.ga >= 70 ? 'ga-hi' : p.ga <= 45 ? 'ga-lo' : '';
+        const chips = chipsHTML(p);
         return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + esc(p.n) + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
           '</td><td>' + badgeHTML(p) + (p.badge ? ' ' : '') + placeHTML(p) + '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') +
-          (p.flags && p.flags.length ? ' <span class="flag">⚠ ' + esc(p.flags.join(', ')) + '</span>' : '') + '</td></tr>';
+          (chips ? ' <span class="pcell">' + chips + '</span>' : '') + '</td></tr>';
       }).join('') + '</table>';
   }).join('');
   const duos = (g.duos || []).map(d => '<div class="duo">🔗 DUO (' + esc(d[3]) + '): ' + esc(d[0]) + ' + ' + esc(d[1]) + ' — ' + esc(d[2]) + '</div>').join('');
-  return '<div class="one" style="margin-bottom:8px">' + esc(g.oneLiner) + '</div>' + matchupHTML(g) + teams + duos;
+  return matchupHTML(g) + teams + duos;
 }
