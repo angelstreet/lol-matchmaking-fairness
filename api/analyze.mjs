@@ -17,9 +17,11 @@ export default async function handler(req, res) {
     const [name, tag] = riotId.split('#');
     const summoner = `${name}-${tag}`;
 
-    // 1. shared cache — free for everyone, no key needed
+    // 1. shared cache — free for everyone, no key needed. A live-only entry (still mid-game
+    // when it was cached) doesn't count as a hit here — fall through to run the full deep
+    // analysis, which overwrites the same (matchId, summoner) row with the final result.
     const cached = await store.getAnalysis(matchId, summoner);
-    if (cached) return res.status(200).json({ cached: true, entry: cached });
+    if (cached && !cached.live) return res.status(200).json({ cached: true, entry: cached });
 
     const userKey = req.headers['x-api-key'];
     const sharedKey = process.env.RIOT_API_KEY;

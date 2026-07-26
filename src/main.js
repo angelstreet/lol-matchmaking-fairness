@@ -236,9 +236,11 @@ function renderRows(games, container, prefix) {
     const when = g.when ? new Date(g.when).toLocaleString() : '';
     const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking)}" id="b${key}">${verdictLabel(g.matchmaking)}</span>` : `<span id="b${key}"></span>`;
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
+    const isLive = g.live || g.result === 'Live';
+    const resultEl = isLive ? '<span class="badge b-live">LIVE</span>' : `<span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>`;
     return `<div class="gcard" id="g${key}">
       <div class="row">
-        <span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>
+        ${resultEl}
         <span>${esc(g.champ)} ${esc(g.kda)}</span>
         <span class="dim">${esc(g.duration)} · ${when}</span>
         ${badge}

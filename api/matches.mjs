@@ -25,11 +25,13 @@ export default async function handler(req, res) {
     const out = [];
     for (const id of ids) {
       const cachedAnalysis = await store.getAnalysis(id, summoner);
-      if (cachedAnalysis) { out.push({ matchId: id, cached: true, ...pick(cachedAnalysis) }); continue; }
+      // A live-only cached entry (from mid-game) doesn't count as analyzed yet — fall through
+      // to the normal uncached path so the row still gets an "Analyze" button for the final pass.
+      if (cachedAnalysis && !cachedAnalysis.live) { out.push({ matchId: id, cached: true, ...pick(cachedAnalysis) }); continue; }
       const m = await fetchMatch(c, store, id); // 1 Riot call if raw not cached
       const me = m && pStats(m, acct.puuid);
       out.push({
-        matchId: id, cached: false, remake: me?.remake || false,
+        matchId: id, cached: false, wasLive: !!cachedAnalysis, remake: me?.remake || false,
         result: me ? (me.win ? 'Victory' : 'Defeat') : '?',
         champ: me?.champ, kda: me ? `${me.k}/${me.d}/${me.a}` : '',
         when: m ? new Date(m.info.gameStartTimestamp).toISOString() : null,

@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       total, offset, limit,
       games: entries.map(a => ({
-        matchId: a.matchId, cached: true,
+        matchId: a.matchId, cached: true, live: !!a.live,
         result: a.result, champ: a.user?.champ, kda: a.user?.kda,
         when: a.when, duration: a.duration,
         matchmaking: a.matchmaking, oneLiner: a.oneLiner,
