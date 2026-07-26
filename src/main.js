@@ -122,13 +122,22 @@ if (CLERK_PK) {
   }).catch(() => {});
 }
 
+// Top-level buttons (#go / #liveBtn) are locked for the duration of ANY in-flight operation —
+// the initial search, a per-game analyze, or a live-game check — using a small refcount so
+// overlapping operations (e.g. two "Analyze" clicks on different rows) don't unlock early.
+let busyCount = 0;
+function beginBusy() { busyCount++; $('#go').disabled = true; $('#liveBtn').disabled = true; }
+function endBusy() { busyCount = Math.max(0, busyCount - 1); if (busyCount === 0) { $('#go').disabled = false; $('#liveBtn').disabled = false; } }
+
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
   CTX = { riotId: normRiotId($('#riotId').value), region: $('#region').value };
   localStorage.setItem('rgapi', $('#apiKey').value.trim());
   localStorage.setItem('riotId', CTX.riotId);
-  $('#go').disabled = true;
-  $('#status').innerHTML = '<span class="spin">⏳</span> Fetching recent ranked games…';
+  const goLabel = $('#go').textContent;
+  beginBusy();
+  $('#go').innerHTML = '<span class="spin">⏳</span>';
+  $('#status').textContent = '';
   $('#list').innerHTML = '';
   try {
     const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(CTX.riotId)}&games=${$('#games').value}&region=${CTX.region}`, { headers: hdrs() });
@@ -138,25 +147,29 @@ $('#f').addEventListener('submit', async e => {
     $('#status').textContent = data.games.length ? 'Pick a game to analyze — ✓ games are already analyzed (free & instant).' : 'No ranked solo games found.';
     loadHistory(0);
   } catch (err) { $('#status').innerHTML = '❌ ' + esc(err.message); }
-  $('#go').disabled = false;
+  finally { endBusy(); $('#go').textContent = goLabel; }
 });
 
-$('#liveBtn').addEventListener('click', () => {
+$('#liveBtn').addEventListener('click', async () => {
   const riotId = normRiotId($('#riotId').value), region = $('#region').value;
   if (!riotId.includes('#')) return;
   localStorage.setItem('rgapi', $('#apiKey').value.trim());
   localStorage.setItem('riotId', riotId);
-  checkLive(riotId, region);
+  const liveLabel = $('#liveBtn').innerHTML;
+  beginBusy();
+  $('#liveBtn').innerHTML = '<span class="spin">⏳</span>';
+  $('#status').textContent = '';
+  try {
+    await checkLive(riotId, region);
+  } finally { endBusy(); $('#liveBtn').innerHTML = liveLabel; }
 });
 
 async function checkLive(riotId, region, attempt = 0) {
-  $('#liveBtn').disabled = true;
-  $('#status').innerHTML = '<span class="spin">⏳</span> Checking for a live game…';
   try {
     const r = await fetch(`${API}/api/live?riotId=${encodeURIComponent(riotId)}&region=${region}`, { headers: hdrs() });
     const data = await r.json();
-    if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry
-      $('#status').innerHTML = `<span class="spin">⏳</span> Free analyzer busy — retrying (${attempt + 1})…`;
+    if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
+      $('#liveBtn').innerHTML = `<span class="spin">⏳</span> #${attempt + 1}`;
       await new Promise(res => setTimeout(res, 20000));
       return checkLive(riotId, region, attempt + 1);
     }
@@ -166,12 +179,11 @@ async function checkLive(riotId, region, attempt = 0) {
     else {
       CTX = { riotId, region };
       renderLive(data.entry);
-      $('#status').textContent = 'Live game found.';
+      $('#status').textContent = '';
     }
   } catch (err) {
     $('#status').innerHTML = '❌ ' + esc(err.message);
   }
-  $('#liveBtn').disabled = false;
 }
 
 function renderLive(g) {
@@ -188,7 +200,7 @@ function renderLive(g) {
     </div>
     <div class="details">
       <div class="dim" style="margin-bottom:8px">Positions are inferred from each player's recent games (spectator data has no assigned roles).</div>
-      ${detailsHTML(g)}
+      ${detailsHTML(g, 'live')}
     </div>`;
   $('#list').insertBefore(card, $('#list').firstChild);
 }
@@ -237,29 +249,32 @@ function renderRows(games, container, prefix) {
 async function analyze(matchId, btn, i, attempt = 0) {
   const card = document.getElementById('g' + i);
   if (btn.dataset.loaded) { card.classList.toggle('open'); btn.textContent = card.classList.contains('open') ? '▴ Hide' : '✓ View'; return; }
-  btn.disabled = true; btn.textContent = '…';
-  $('#status').innerHTML = `<span class="spin">⏳</span> Analyzing ${esc(matchId)} — up to ~1 min for a new game…`;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">⏳</span>';
+  beginBusy();
   try {
     const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(CTX.riotId)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}`, { headers: hdrs() });
     const data = await r.json();
-    if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry
-      $('#status').innerHTML = `<span class="spin">⏳</span> Free analyzer busy — retrying (${attempt + 1})…`;
+    if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
+      btn.innerHTML = `<span class="spin">⏳</span> #${attempt + 1}`;
       await new Promise(res => setTimeout(res, 20000));
-      return analyze(matchId, btn, i, attempt + 1);
+      return await analyze(matchId, btn, i, attempt + 1);
     }
     if (!r.ok) throw new Error(data.error || r.status);
     const g = data.entry;
-    document.getElementById('d' + i).innerHTML = detailsHTML(g);
+    document.getElementById('d' + i).innerHTML = detailsHTML(g, i);
     const badgeEl = document.getElementById('b' + i);
     if (badgeEl) { badgeEl.className = 'badge ' + (g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'); badgeEl.textContent = g.matchmaking; }
     const oneEl = document.getElementById('o' + i);
     if (oneEl) { oneEl.textContent = g.oneLiner || ''; oneEl.title = g.oneLiner || ''; }
     btn.dataset.loaded = '1'; btn.textContent = '▴ Hide'; btn.disabled = false;
     card.classList.add('open');
-    $('#status').textContent = data.cached ? '' : 'Analysis complete — cached for everyone from now on.';
+    $('#status').textContent = '';
   } catch (err) {
     $('#status').innerHTML = '❌ ' + esc(err.message);
     btn.textContent = 'Analyze'; btn.disabled = false;
+  } finally {
+    endBusy();
   }
 }
 
@@ -303,8 +318,8 @@ function laneVerdict(a, b) {
   return `<span class="lv-${side}" title="${sideLabel} side ${strength}: +${ad} GA advantage before the game started">${side.toUpperCase()} +${ad}</span>`;
 }
 
-// Which side (if any) a lane is favored toward, for tinting that side's cells and putting
-// the severity icon next to its champion — kept separate from laneVerdict's HTML/text so the
+// Which side (if any) a lane is favored toward, for tinting that side's cells and for the
+// severity chip in that side's name group — kept separate from laneVerdict's HTML/text so the
 // middle "Favored" column only ever shows the centered EVEN/BLUE +n/RED +n text.
 function laneFavor(a, b) {
   if (a == null || b == null) return null;
@@ -316,14 +331,19 @@ function laneFavor(a, b) {
 function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
-  const cellName = (p, side) => {
+  const cellName = (p, side, fav) => {
     if (!p) return '<span class="dim">—</span>';
     const badge = badgeHTML(p);
     const pname = `<span class="pname">${esc(p.n)} <b>GA ${p.ga ?? '–'}</b></span>`;
     const chips = chipsHTML(p);
+    // The lane-favor icon rides along with the badge/chips group, same side rule as the rest —
+    // only the favored side gets it, and it's a chip, not text next to the champion.
+    const favChip = fav && fav.side === side
+      ? `<span class="chip" title="${side === 'blue' ? 'Blue' : 'Red'} side ${fav.icon === '🔥' ? 'HEAVILY favored (>18 GA gap)' : 'favored (9–18 GA gap)'} in this lane — based on pre-game data only">${fav.icon}</span>`
+      : '';
     // Badges and chips sit toward the table's center on each side, not before the outer name,
     // so the outer name edges (row start on blue, row end on red) stay aligned down the column.
-    const items = side === 'red' ? [chips, badge, pname] : [pname, badge, chips];
+    const items = side === 'red' ? [chips, favChip, badge, pname] : [pname, badge, favChip, chips];
     return `<span class="pcell">${items.filter(Boolean).join('')}</span>`;
   };
   const rows = ROLES.map(role => {
@@ -332,16 +352,16 @@ function matchupHTML(g) {
     const fav = laneFavor(b?.ga, r?.ga);
     const rowCls = (base, p, side) => {
       const c = base ? [base] : [];
-      if (fav && fav.side === side) c.push(`fav-${side}`);
+      if (fav) { if (fav.side === side) c.push(`fav-${side}`); }
+      else c.push(`even-${side}`);
       if (p && p.n.replace('#', '-').toLowerCase() === meName) c.push('you');
       return c.length ? ` class="${c.join(' ')}"` : '';
     };
-    const champCell = (p, side) => {
+    const champCell = (p) => {
       if (!p) return '<span class="dim">—</span>';
-      const icon = fav && fav.side === side ? ` ${fav.icon}` : '';
-      return `<span class="champ">${esc(p.champ)}</span>${icon}`;
+      return `<span class="champ">${esc(p.champ)}</span>`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b, 'blue')}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, 'red')}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, 'blue', fav)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, 'red', fav)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const cls = g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad';
@@ -353,7 +373,7 @@ function matchupHTML(g) {
   </table>`;
 }
 
-function detailsHTML(g) {
+function detailsHTML(g, key = 'x') {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const teams = ['blue', 'red'].map(t => {
     const rows = (g.players || []).filter(p => p.team === t);
@@ -373,5 +393,21 @@ function detailsHTML(g) {
       }).join('') + '</table>';
   }).join('');
   const duos = (g.duos || []).map(d => '<div class="duo">🔗 DUO (' + esc(d[3]) + '): ' + esc(d[0]) + ' + ' + esc(d[1]) + ' — ' + esc(d[2]) + '</div>').join('');
-  return matchupHTML(g) + teams + duos;
+  const mId = 'sm' + key, dId = 'sd' + key;
+  // Matchup summary is the primary view (expanded); full team tables are on-demand (collapsed).
+  // Sections are toggled by the delegated .sec-h click handler below.
+  return `<div class="sec-h first" data-target="${mId}">▾ Matchup</div>` +
+    `<div class="sec-b" id="${mId}">${matchupHTML(g)}</div>` +
+    `<div class="sec-h" data-target="${dId}">▸ Details</div>` +
+    `<div class="sec-b" id="${dId}" style="display:none">${teams}${duos}</div>`;
 }
+
+document.addEventListener('click', e => {
+  const h = e.target.closest('.sec-h');
+  if (!h) return;
+  const body = document.getElementById(h.dataset.target);
+  if (!body) return;
+  const willShow = body.style.display === 'none';
+  body.style.display = willShow ? '' : 'none';
+  h.textContent = h.textContent.replace(/^./, willShow ? '▾' : '▸');
+});

@@ -25,8 +25,10 @@ table { width:100%; border-collapse:collapse; font-size:13px; margin:8px 0 16px;
 th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
 th { color:var(--dim); font-weight:600; }
 .t-blue td:first-child { border-left:3px solid var(--blue);} .t-red td:first-child { border-left:3px solid var(--red);}
-.fav-blue { background:rgba(74,144,217,.10); }
-.fav-red { background:rgba(217,122,74,.10); }
+.even-blue { background:rgba(74,144,217,.06); }
+.even-red { background:rgba(217,122,74,.06); }
+.fav-blue { background:rgba(74,144,217,.14); }
+.fav-red { background:rgba(217,122,74,.14); }
 .you { background:rgba(242,195,76,.10); }
 tr.you td:first-child { border-left:3px solid #f2c34c !important; }
 td.you:first-child { border-left:3px solid #f2c34c !important; }
@@ -38,7 +40,7 @@ td.you + td.you { border-left:none !important; }
 .badge-mvp, .badge-ace { border:1px solid currentColor; border-radius:99px; padding:0 6px; font-size:10px; font-weight:800; }
 .badge-mvp { color:#f2c34c; }
 .badge-ace { color:#c77dff; }
-.champ-c { width:1%; }
+.champ-c { width:1%; white-space:nowrap; }
 .champ { font-weight:700; }
 .pcell { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .matchup .rgt .pcell { justify-content:flex-end; }
@@ -71,6 +73,8 @@ td.you + td.you { border-left:none !important; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }
 .one-h { color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:46ch; min-width:0; }
+.sec-h { cursor:pointer; padding:8px 0; border-top:1px solid var(--line); color:var(--dim); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
+.sec-h.first { border-top:none; }
 .lv-even { color:var(--ok); } .lv-blue { color:var(--blue); font-weight:700; } .lv-red { color:var(--red); font-weight:700; }
 .row .dim, .dim { color:var(--dim); font-size:13px; }
 .mini { margin-left:auto; padding:6px 14px; font-size:13px; }
