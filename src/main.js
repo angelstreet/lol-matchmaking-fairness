@@ -13,13 +13,13 @@ document.querySelector('#app').innerHTML = `
     <button id="go">Find my games</button>
     <input id="apiKey" placeholder="Your Riot API key (optional)" type="password">
     <div class="note">
-      No key? You get <b>3 free deep analyses per day</b> (shared analyzer, may queue). Already-analyzed games are always free and instant.
       <a href="#" id="howKey">How to get your own free key (2 min) ▾</a>
       <div id="keyHelp" style="display:none">
         1. Go to <a href="https://developer.riotgames.com" target="_blank" rel="noreferrer">developer.riotgames.com</a> and sign in with your Riot account.<br>
         2. Copy the <b>Development API Key</b> on the dashboard and paste it here.<br>
         3. It expires every 24h (Riot's rule) — just grab a new one. The key stays in your browser and is only used for your own requests.
       </div>
+      <div>No key? <b>3 free analyses/day</b> (may queue). Analyzed games are always free & instant.</div>
     </div>
   </form>
   <div id="status"></div>
