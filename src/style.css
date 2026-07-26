@@ -81,4 +81,5 @@ td.you + td.you { border-left:none !important; }
 .note a { color:var(--ok); }
 #keyHelp { margin-top:8px; line-height:1.7; }
 h4 { margin:10px 0 2px; }
-.spin { display:inline-block; animation:r 1s linear infinite; } @keyframes r { to { transform:rotate(360deg);} }
+.spinner { display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.3); border-top-color:currentColor; border-radius:50%; animation:r .8s linear infinite; vertical-align:-2px; }
+@keyframes r { to { transform:rotate(360deg);} }

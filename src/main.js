@@ -136,7 +136,7 @@ $('#f').addEventListener('submit', async e => {
   localStorage.setItem('riotId', CTX.riotId);
   const goLabel = $('#go').textContent;
   beginBusy();
-  $('#go').innerHTML = '<span class="spin">⏳</span>';
+  $('#go').innerHTML = '<span class="spinner"></span>';
   $('#status').textContent = '';
   $('#list').innerHTML = '';
   try {
@@ -157,7 +157,7 @@ $('#liveBtn').addEventListener('click', async () => {
   localStorage.setItem('riotId', riotId);
   const liveLabel = $('#liveBtn').innerHTML;
   beginBusy();
-  $('#liveBtn').innerHTML = '<span class="spin">⏳</span>';
+  $('#liveBtn').innerHTML = '<span class="spinner"></span>';
   $('#status').textContent = '';
   try {
     await checkLive(riotId, region);
@@ -169,7 +169,7 @@ async function checkLive(riotId, region, attempt = 0) {
     const r = await fetch(`${API}/api/live?riotId=${encodeURIComponent(riotId)}&region=${region}`, { headers: hdrs() });
     const data = await r.json();
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
-      $('#liveBtn').innerHTML = `<span class="spin">⏳</span> #${attempt + 1}`;
+      $('#liveBtn').innerHTML = `<span class="spinner"></span> #${attempt + 1}`;
       await new Promise(res => setTimeout(res, 20000));
       return checkLive(riotId, region, attempt + 1);
     }
@@ -250,13 +250,13 @@ async function analyze(matchId, btn, i, attempt = 0) {
   const card = document.getElementById('g' + i);
   if (btn.dataset.loaded) { card.classList.toggle('open'); btn.textContent = card.classList.contains('open') ? '▴ Hide' : '✓ View'; return; }
   btn.disabled = true;
-  btn.innerHTML = '<span class="spin">⏳</span>';
+  btn.innerHTML = '<span class="spinner"></span>';
   beginBusy();
   try {
     const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(CTX.riotId)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}`, { headers: hdrs() });
     const data = await r.json();
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
-      btn.innerHTML = `<span class="spin">⏳</span> #${attempt + 1}`;
+      btn.innerHTML = `<span class="spinner"></span> #${attempt + 1}`;
       await new Promise(res => setTimeout(res, 20000));
       return await analyze(matchId, btn, i, attempt + 1);
     }
