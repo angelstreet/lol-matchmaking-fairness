@@ -1,12 +1,16 @@
 {
   "name": "lol-matchmaking-fairness",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "vite",
+    "dev": "node dev-server.mjs & vite",
+    "dev:api": "node dev-server.mjs",
     "build": "vite build",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
   },
   "devDependencies": {
     "vite": "^6.0.0"
