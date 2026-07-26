@@ -7,9 +7,11 @@ document.querySelector('#app').innerHTML = `
   <h1>LoL <span>Matchmaking Fairness</span> <span id="clerkBtn"></span></h1>
   <div class="sub">Was your game winnable? Ranked Solo/Duo only · pre-game form for all 10 players · proven duo detection · GA scores · official Riot API</div>
   <form id="f">
-    <select id="bmSel" title="Bookmarked profiles"><option value="">★</option></select>
-    <input id="riotId" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required>
-    <button type="button" id="bmStar" title="Bookmark this profile">☆</button>
+    <div class="combo">
+      <input id="riotId" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
+      <button type="button" id="bmStar" title="Bookmark this profile">☆</button>
+      <div id="bmDrop"></div>
+    </div>
     <select id="games"><option>3</option><option selected>5</option><option>10</option></select>
     <select id="region"><option selected>euw</option><option>eune</option><option>na</option><option>kr</option></select>
     <button id="go">Find my games</button>
@@ -48,9 +50,11 @@ const getBM = () => { try { return JSON.parse(localStorage.getItem('bookmarks') 
 const isBM = id => getBM().some(b => b.riotId.toLowerCase() === id.toLowerCase());
 const setBM = l => { localStorage.setItem('bookmarks', JSON.stringify(l)); renderBM(); };
 function renderBM() {
-  $('#bmSel').innerHTML = '<option value="">★</option>' + getBM().map(b => `<option value="${esc(b.riotId)}|${esc(b.region)}">★ ${esc(b.riotId)}</option>`).join('');
+  $('#bmDrop').innerHTML = getBM().map(b => `<div class="bmItem" data-riotid="${esc(b.riotId)}" data-region="${esc(b.region)}">★ ${esc(b.riotId)} <span class="dim">(${esc(b.region)})</span></div>`).join('');
   updateStar();
 }
+function openDrop() { if (getBM().length) $('#bmDrop').classList.add('open'); }
+function closeDrop() { $('#bmDrop').classList.remove('open'); }
 function updateStar() {
   const on = isBM($('#riotId').value.trim());
   $('#bmStar').textContent = on ? '★' : '☆';
@@ -75,12 +79,17 @@ $('#bmStar').addEventListener('click', async () => {
   const synced = await serverBM(on ? 'remove' : 'add', riotId, region);
   if (synced) setBM(synced);
 });
-$('#bmSel').addEventListener('change', () => {
-  const v = $('#bmSel').value; if (!v) return;
-  const [riotId, region] = v.split('|');
-  $('#riotId').value = riotId; $('#region').value = region || 'euw'; $('#bmSel').value = '';
+$('#bmDrop').addEventListener('click', e => {
+  const item = e.target.closest('.bmItem'); if (!item) return;
+  $('#riotId').value = item.dataset.riotid;
+  $('#region').value = item.dataset.region || 'euw';
+  closeDrop();
+  updateStar();
   $('#f').requestSubmit();
 });
+$('#riotId').addEventListener('focus', openDrop);
+$('#riotId').addEventListener('click', openDrop);
+document.addEventListener('click', e => { if (!e.target.closest('.combo')) closeDrop(); });
 $('#riotId').addEventListener('input', updateStar);
 renderBM();
 

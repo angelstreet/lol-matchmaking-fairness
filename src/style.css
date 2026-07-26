@@ -6,7 +6,8 @@ h1 { font-size:22px; margin-bottom:4px; } h1 span { color:var(--ok); }
 .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
 form { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 input, select { background:var(--card); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:10px 12px; font-size:15px; }
-input#riotId { flex:1; min-width:200px; }
+.combo { position:relative; flex:1; min-width:220px; display:flex; }
+input#riotId { flex:1; min-width:200px; width:100%; padding-right:40px; }
 input#apiKey { width:270px; }
 button { background:var(--ok); color:#06251b; border:0; border-radius:8px; padding:10px 20px; font-weight:700; font-size:15px; cursor:pointer; }
 button:disabled { opacity:.5; cursor:wait; }
@@ -36,9 +37,13 @@ td.you + td.you { border-left:none !important; }
 .legend { font-size:11px; margin:-12px 0 16px; }
 .champ-c { width:1%; }
 .champ { font-weight:700; }
-#bmStar { background:none; border:1px solid var(--line); color:#f2c34c; font-size:17px; padding:8px 12px; }
-#bmStar.starred { background:#2a2410; }
-#bmSel { max-width:170px; }
+#bmStar { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:#f2c34c; font-size:17px; padding:2px 4px; line-height:1; }
+#bmStar.starred { background:none; }
+#bmDrop { display:none; position:absolute; top:100%; left:0; right:0; background:var(--card); border:1px solid var(--line); border-radius:0 0 10px 10px; z-index:20; max-height:240px; overflow-y:auto; }
+#bmDrop.open { display:block; }
+.bmItem { padding:8px 12px; cursor:pointer; }
+.bmItem:hover { background:#20242d; }
+.bmItem .dim { font-size:12px; }
 #clerkBtn { float:right; font-size:14px; }
 .flag { font-size:11px; color:var(--mid); }
 .duo { color:var(--mid); font-size:13px; margin:4px 0; }
