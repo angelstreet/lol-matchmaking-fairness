@@ -59,7 +59,8 @@ td.you + td.you { border-left:none !important; }
 .bmItem:hover { background:#20242d; }
 .bmItem .dim { font-size:12px; }
 #clerkBtn { float:right; font-size:14px; }
-.duo { color:var(--mid); font-size:13px; margin:4px 0; }
+.duo { color:var(--dim); font-size:12px; margin:3px 0; }
+.duo-enemy { color:var(--red); font-weight:800; }
 .ga-hi { color:var(--ok); font-weight:700; } .ga-lo { color:var(--bad); font-weight:700; }
 #status { color:var(--dim); margin:20px 0; }
 .row { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-bottom:8px; flex-wrap:wrap; }
@@ -67,7 +68,8 @@ td.you + td.you { border-left:none !important; }
 .gcard .row { background:none; border:0; border-radius:0; margin:0; }
 .gcard .details { display:none; border-top:1px solid var(--line); padding:12px 16px; overflow-x:auto; }
 .gcard.open .details { display:block; }
-.matchup { margin-bottom:18px; }
+.matchup { margin-bottom:8px; }
+.matchup + .duo { margin-top:6px; }
 .matchup .mid-v { text-align:center; white-space:nowrap; min-width:90px; }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
