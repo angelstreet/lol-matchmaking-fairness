@@ -42,6 +42,10 @@ td.you + td.you { border-left:none !important; }
 .legend { font-size:11px; margin:-12px 0 16px; }
 .champ-c { width:1%; }
 .champ { font-weight:700; }
+.chips { display:flex; gap:4px; flex-wrap:wrap; margin-top:3px; }
+.rgt .chips { justify-content:flex-end; }
+.chip { font-size:10px; background:#20242d; border:1px solid var(--line); border-radius:99px; padding:1px 7px; color:var(--dim); white-space:nowrap; cursor:default; }
+.matchup td { white-space:normal; }
 #bmStar { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:#f2c34c; font-size:17px; padding:2px 4px; line-height:1; }
 #bmStar.starred { background:none; }
 #bmDrop { display:none; position:absolute; top:100%; left:0; right:0; background:var(--card); border:1px solid var(--line); border-radius:0 0 10px 10px; z-index:20; max-height:240px; overflow-y:auto; }

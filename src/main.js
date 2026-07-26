@@ -283,10 +283,32 @@ function laneFavor(a, b) {
 function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
+  const chips = p => {
+    if (!p) return '';
+    const c = [];
+    if (p.flags?.includes('otp')) c.push(['🎯 OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
+    if (p.flags?.includes('autofill')) c.push(['⚠ autofill', 'Playing outside their usual role']);
+    if (p.flags?.includes('first-time')) c.push(['🆕 first champ', 'No recent games and low mastery on this champion']);
+    if (p.duo) c.push(['🔗 duo', 'Queued with a teammate — proven by shared pre-game matches']);
+    if (p.streak) {
+      const n = parseInt(p.streak), w = p.streak.endsWith('W');
+      if (n >= 3) c.push([w ? `🔥 ${n}W streak` : `❄️ ${n}L streak`, (w ? 'Win' : 'Loss') + ' streak entering this game']);
+    }
+    if (p.cspm != null && p.pos !== 'UTILITY') {
+      const v = p.cspm;
+      const [lab, tip] = v >= 9 ? [`💎 ${v} cs/m`, 'Elite farming (9+ per minute)']
+        : v >= 8 ? [`🟢 ${v} cs/m`, 'Good farming (8+ per minute)']
+        : v >= 7 ? [`🟡 ${v} cs/m`, 'Decent farming (7+ per minute)']
+        : v >= 5.5 ? [`${v} cs/m`, 'Average farming']
+        : [`🔻 ${v} cs/m`, 'Low farming (under 5.5 per minute)'];
+      c.push([lab, tip]);
+    }
+    return c.length ? '<div class="chips">' + c.map(([l, t]) => `<span class="chip" title="${esc(t)}">${l}</span>`).join('') + '</div>' : '';
+  };
   const cellName = (p, side) => {
     if (!p) return '<span class="dim">—</span>';
     const badge = badgeHTML(p);
-    const nameGa = `${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>`;
+    const nameGa = `${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>${chips(p)}`;
     if (!badge) return nameGa;
     // Badges sit toward the table's center on each side, not before the outer name, so the
     // outer name edges (row start on blue, row end on red) stay aligned down the column.
