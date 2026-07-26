@@ -47,6 +47,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 // the '#' everywhere before it's used as a cache/history key, so both forms resolve the same entry.
 const normRiotId = s => String(s || '').trim().replace(/\s*#\s*/, '#');
 const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-key': k } : {}; };
+// Verdict is binary (OK / NOT OK). Legacy cached entries may still carry 'BORDERLINE' —
+// render those as NOT OK too so the UI never shows a third state.
+const verdictCls = v => v === 'OK' ? 'b-ok' : 'b-bad';
+const verdictLabel = v => v === 'OK' ? 'OK' : 'NOT OK';
 let CTX = { riotId: '', region: 'euw' };
 
 // ---- bookmarks: localStorage always; synced to the Clerk account when signed in ----
@@ -228,7 +232,7 @@ function renderRows(games, container, prefix) {
     if (g.remake) return `<div class="row dim">Remake — skipped</div>`;
     const key = prefix + i;
     const when = g.when ? new Date(g.when).toLocaleString() : '';
-    const badge = g.cached && g.matchmaking ? `<span class="badge ${g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'}" id="b${key}">${g.matchmaking}</span>` : `<span id="b${key}"></span>`;
+    const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking)}" id="b${key}">${verdictLabel(g.matchmaking)}</span>` : `<span id="b${key}"></span>`;
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
@@ -263,7 +267,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
     const g = data.entry;
     document.getElementById('d' + i).innerHTML = detailsHTML(g, i);
     const badgeEl = document.getElementById('b' + i);
-    if (badgeEl) { badgeEl.className = 'badge ' + (g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad'); badgeEl.textContent = g.matchmaking; }
+    if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking); badgeEl.textContent = verdictLabel(g.matchmaking); }
     const oneEl = document.getElementById('o' + i);
     if (oneEl) { oneEl.textContent = g.oneLiner || ''; oneEl.title = g.oneLiner || ''; }
     btn.dataset.loaded = '1'; btn.textContent = '▴ Hide'; btn.disabled = false;
@@ -363,12 +367,11 @@ function matchupHTML(g) {
     return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, 'blue', fav)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, 'red', fav)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
-  const cls = g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad';
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${cls}">${g.matchmaking}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${verdictCls(g.matchmaking)}">${verdictLabel(g.matchmaking)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
   </table>`;
 }
 
