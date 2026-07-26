@@ -198,7 +198,13 @@ function renderLive(g) {
   const card = document.createElement('div');
   card.className = 'gcard open';
   card.id = 'liveCard';
+  const reco = g.recommendation;
+  const [recoHead, recoDetail] = reco ? reco.text.split(' — ') : [];
+  const recoHTML = reco
+    ? `<div class="reco"${reco.delta <= 0 ? ' style="color:var(--mid)"' : ''}>🎯 ${esc(recoHead)}${recoDetail ? ` <span class="dim">— ${esc(recoDetail)}</span>` : ''}</div>`
+    : '';
   card.innerHTML = `
+    ${recoHTML}
     <div class="row">
       <span class="badge b-live">LIVE</span>
       <span>LIVE — ${esc(g.user?.champ || '')} · started ${mins} min ago</span>

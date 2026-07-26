@@ -87,4 +87,5 @@ h4 { margin:10px 0 2px; }
 .foot { margin-top:40px; padding:16px 0; border-top:1px solid var(--line); font-size:12px; text-align:center; }
 .foot a { color:var(--ok); text-decoration:none; font-weight:700; }
 .foot a:hover { text-decoration:underline; }
+.reco { font-size:18px; font-weight:800; color:var(--ok); padding:10px 0; }
 @keyframes r { to { transform:rotate(360deg);} }
