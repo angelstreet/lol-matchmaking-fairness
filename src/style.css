@@ -24,7 +24,10 @@ th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); 
 th { color:var(--dim); font-weight:600; }
 .t-blue td:first-child { border-left:3px solid var(--blue);} .t-red td:first-child { border-left:3px solid var(--red);}
 .you { background:rgba(242,195,76,.10); }
-.you td:first-child, td.you { border-left:3px solid #f2c34c !important; }
+tr.you td:first-child { border-left:3px solid #f2c34c !important; }
+td.you:first-child { border-left:3px solid #f2c34c !important; }
+td:not(.you) + td.you { border-left:3px solid #f2c34c !important; }
+td.you + td.you { border-left:none !important; }
 .gold { color:#f2c34c; font-weight:800; }
 .tm-blue { color:var(--blue); font-weight:800; }
 .tm-red { color:var(--red); font-weight:800; }

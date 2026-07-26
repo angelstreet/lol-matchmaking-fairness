@@ -200,7 +200,7 @@ const placeHTML = p => p?.place ? `<span class="dim" title="In-game performance 
 function laneVerdict(a, b) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
-  if (ad <= 8) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points">⚖️ even</span>`;
+  if (ad <= 8) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points">EVEN</span>`;
   const heavy = ad > 18;
   const icon = heavy ? '🔥' : '⚠️';
   const strength = heavy ? 'HEAVILY favored' : 'favored';
@@ -214,8 +214,7 @@ function matchupHTML(g) {
   const champ = p => p ? `<span class="champ">${esc(p.champ)}</span>` : '<span class="dim">—</span>';
   const cellName = p => {
     if (!p) return '<span class="dim">—</span>';
-    const isMe = p.n.replace('#', '-').toLowerCase() === meName;
-    return `${isMe ? '<span class="gold">⭐</span> ' : ''}${badgeHTML(p)}${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>`;
+    return `${badgeHTML(p)}${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>`;
   };
   const meCls = p => p && p.n.replace('#', '-').toLowerCase() === meName ? ' class="you"' : '';
   const rows = ROLES.map(role => {
@@ -227,11 +226,11 @@ function matchupHTML(g) {
   const cls = g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad';
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
   return `<table class="matchup">
-    <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">⭐ you</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">⭐ you</span>' : ''}</th><th class="champ-c"></th></tr>
+    <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">you</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">you</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
     <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${cls}">${g.matchmaking}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
   </table>
-  <div class="dim legend">⚖️ even (GA gap ≤ 8) · ⚠️ favored (9–18) · 🔥 heavily favored (>18) — the arrow points toward the favored side, based on pre-game data only</div>`;
+  <div class="dim legend">EVEN (GA gap ≤ 8) · ⚠️ favored (9–18) · 🔥 heavily favored (>18) — the arrow points toward the favored side, based on pre-game data only</div>`;
 }
 
 function detailsHTML(g) {
@@ -240,13 +239,13 @@ function detailsHTML(g) {
     const rows = (g.players || []).filter(p => p.team === t);
     if (!rows.length) return '';
     const won = (g.result === 'Victory') === (g.userTeam === t);
-    return '<h4><span class="tm-' + t + '">' + t.toUpperCase() + '</span>' + (g.userTeam === t ? ' <span class="gold">⭐ your team</span>' : '') + ' · ' + (won ? 'win' : 'loss') +
+    return '<h4><span class="tm-' + t + '">' + t.toUpperCase() + '</span>' + (g.userTeam === t ? ' <span class="gold">your team</span>' : '') + ' · ' + (won ? 'win' : 'loss') +
       (g.teamGA && g.teamGA[t] ? ' · avg GA ' + g.teamGA[t] : '') + '</h4>' +
       '<table><tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>Perf</th><th>GA</th><th>Form (pre-game)</th></tr>' +
       rows.map(p => {
         const isMe = p.n.replace('#', '-').toLowerCase() === meName;
         const gaCls = p.ga == null ? '' : p.ga >= 70 ? 'ga-hi' : p.ga <= 45 ? 'ga-lo' : '';
-        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + (isMe ? '<span class="gold">⭐</span> ' : '') + esc(p.n) + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
+        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + esc(p.n) + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
           '</td><td>' + badgeHTML(p) + placeHTML(p) + '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') +
           (p.flags && p.flags.length ? ' <span class="flag">⚠ ' + esc(p.flags.join(', ')) + '</span>' : '') + '</td></tr>';
