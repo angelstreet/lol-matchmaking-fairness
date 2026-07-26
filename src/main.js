@@ -263,25 +263,44 @@ function laneVerdict(a, b) {
   const d = a - b, ad = Math.abs(d);
   if (ad <= 8) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points">EVEN</span>`;
   const heavy = ad > 18;
-  const icon = heavy ? '🔥' : '⚠️';
   const strength = heavy ? 'HEAVILY favored' : 'favored';
-  if (d > 0) return `<span class="lv-blue" title="Blue side ${strength}: +${ad} GA advantage before the game started">${icon} ◀ BLUE +${ad}</span>`;
-  return `<span class="lv-red" title="Red side ${strength}: +${ad} GA advantage before the game started">${icon} RED +${ad} ▶</span>`;
+  const side = d > 0 ? 'blue' : 'red', sideLabel = side === 'blue' ? 'Blue' : 'Red';
+  return `<span class="lv-${side}" title="${sideLabel} side ${strength}: +${ad} GA advantage before the game started">${side.toUpperCase()} +${ad}</span>`;
+}
+
+// Which side (if any) a lane is favored toward, for tinting that side's cells and putting
+// the severity icon next to its champion — kept separate from laneVerdict's HTML/text so the
+// middle "Favored" column only ever shows the centered EVEN/BLUE +n/RED +n text.
+function laneFavor(a, b) {
+  if (a == null || b == null) return null;
+  const d = a - b, ad = Math.abs(d);
+  if (ad <= 8) return null;
+  return { side: d > 0 ? 'blue' : 'red', icon: ad > 18 ? '🔥' : '⚠️' };
 }
 
 function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
-  const champ = p => p ? `<span class="champ">${esc(p.champ)}</span>` : '<span class="dim">—</span>';
   const cellName = p => {
     if (!p) return '<span class="dim">—</span>';
     return `${badgeHTML(p)}${esc(p.n)} <b>GA ${p.ga ?? '–'}</b>`;
   };
-  const meCls = p => p && p.n.replace('#', '-').toLowerCase() === meName ? ' class="you"' : '';
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
     if (!b && !r) return '';
-    return `<tr><td class="champ-c"${meCls(b)}>${champ(b)}</td><td${meCls(b)}>${cellName(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td class="rgt"${meCls(r)}>${cellName(r)}</td><td class="champ-c rgt"${meCls(r)}>${champ(r)}</td></tr>`;
+    const fav = laneFavor(b?.ga, r?.ga);
+    const rowCls = (base, p, side) => {
+      const c = base ? [base] : [];
+      if (fav && fav.side === side) c.push(`fav-${side}`);
+      if (p && p.n.replace('#', '-').toLowerCase() === meName) c.push('you');
+      return c.length ? ` class="${c.join(' ')}"` : '';
+    };
+    const champCell = (p, side) => {
+      if (!p) return '<span class="dim">—</span>';
+      const icon = fav && fav.side === side ? ` ${fav.icon}` : '';
+      return `<span class="champ">${esc(p.champ)}</span>${icon}`;
+    };
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const cls = g.matchmaking === 'OK' ? 'b-ok' : g.matchmaking === 'BORDERLINE' ? 'b-mid' : 'b-bad';
@@ -291,7 +310,7 @@ function matchupHTML(g) {
     ${rows}
     <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${cls}">${g.matchmaking}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
   </table>
-  <div class="dim legend">EVEN (GA gap ≤ 8) · ⚠️ favored (9–18) · 🔥 heavily favored (>18) — the arrow points toward the favored side, based on pre-game data only</div>`;
+  <div class="dim legend">EVEN (GA gap ≤ 8) · ⚠️ = favored (9–18), 🔥 = heavily favored (>18), shown next to the favored champion — based on pre-game data only</div>`;
 }
 
 function detailsHTML(g) {
