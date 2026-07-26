@@ -47,10 +47,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 // the '#' everywhere before it's used as a cache/history key, so both forms resolve the same entry.
 const normRiotId = s => String(s || '').trim().replace(/\s*#\s*/, '#');
 const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-key': k } : {}; };
-// Verdict is binary (OK / NOT OK). Legacy cached entries may still carry 'BORDERLINE' —
-// render those as NOT OK too so the UI never shows a third state.
-const verdictCls = v => v === 'OK' ? 'b-ok' : 'b-bad';
-const verdictLabel = v => v === 'OK' ? 'OK' : 'NOT OK';
+// Verdict is binary (FAIR / NOT FAIR — echoing the app name). Legacy cached entries may still
+// carry the old 'OK' / 'NOT OK' / 'BORDERLINE' values — map those to the same two states.
+const isFairVerdict = v => v === 'OK' || v === 'FAIR';
+const verdictCls = v => isFairVerdict(v) ? 'b-ok' : 'b-bad';
+const verdictLabel = v => isFairVerdict(v) ? 'FAIR' : 'NOT FAIR';
 let CTX = { riotId: '', region: 'euw' };
 
 // ---- bookmarks: localStorage always; synced to the Clerk account when signed in ----
