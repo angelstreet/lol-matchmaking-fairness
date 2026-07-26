@@ -1,0 +1,7 @@
+node_modules/
+dist/
+backend/data/games.json
+backend/data/matches/
+.env
+*.key
+.DS_Store
