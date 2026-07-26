@@ -199,7 +199,6 @@ function renderLive(g) {
       <span class="one-h" title="${esc(g.oneLiner || '')}">${esc(g.oneLiner || '')}</span>
     </div>
     <div class="details">
-      <div class="dim" style="margin-bottom:8px">Positions are inferred from each player's recent games (spectator data has no assigned roles).</div>
       ${detailsHTML(g, 'live')}
     </div>`;
   $('#list').insertBefore(card, $('#list').firstChild);
