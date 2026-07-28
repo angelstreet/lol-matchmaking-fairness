@@ -455,6 +455,11 @@ function chipsHTML(p, duoCtx) {
       : ['cs-low', 'Low farming (under 5.5 per minute)'];
     c.push([`${v} cs`, tip, cls]);
   }
+  // Season winrate only shows up as a chip when it's extreme (and the sample is big enough to
+  // mean something) — otherwise it's just noise; the routine case lives in the Rank column text.
+  if (p.seasonGames >= 20 && p.wr != null && (p.wr >= 58 || p.wr <= 44)) {
+    c.push([`${p.wr}% wr`, `Season winrate over ${p.seasonGames} games`, p.wr >= 58 ? 'wr-hi' : 'wr-lo']);
+  }
   return c.map(([l, t, cls]) => `<span class="chip${cls ? ' ' + cls : ''}" title="${esc(t)}">${l}</span>`).join('');
 }
 
@@ -557,7 +562,9 @@ function detailsHTML(g, key = 'x') {
         // MVP/ACE and the flag/duo/streak/cspm chips all live in the Player cell's chip group —
         // keeping the other columns plain text is what makes the fixed-width alignment hold up.
         const nameCell = `<span class="pcell"><span class="pname">${esc(p.n)}</span>${badge}${chips}</span>`;
-        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + nameCell + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
+        // Season winrate appended dim, only once there's a real sample (20+ games) behind it.
+        const rankCell = esc(p.rank) + (p.seasonGames >= 20 ? ` <span class="dim">· ${p.wr}% (${p.seasonGames}g)</span>` : '');
+        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + nameCell + '</td><td>' + rankCell + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
           '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') + '</td></tr>';
       }).join('') + '</table>';
