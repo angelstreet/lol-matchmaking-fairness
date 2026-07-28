@@ -19,19 +19,26 @@ export default async function handler(req, res) {
     const c = makeClient(key, region);
     const acct = await resolveAccount(c, name, tag);
     if (!acct) return res.status(404).json({ error: 'account not found' });
-    const ids = await listMatchIds(c, acct.puuid, games);
+    // Remakes (game ends in the first 5 min, no LP/analysis value) are excluded from the list
+    // entirely rather than shown as a dead row — so request a few extra ids up front to backfill
+    // whatever remakes eat into the requested count. If even that buffer isn't enough (rare —
+    // would need 5 remakes in a row), we just return however many real games we found.
+    const ids = await listMatchIds(c, acct.puuid, games + 4);
     const summoner = `${name}-${tag}`;
 
     const out = [];
     for (const id of ids) {
+      if (out.length >= games) break;
       const cachedAnalysis = await store.getAnalysis(id, summoner);
       // A live-only cached entry (from mid-game) doesn't count as analyzed yet — fall through
       // to the normal uncached path so the row still gets an "Analyze" button for the final pass.
+      // (analyze.mjs never caches a remake, so a cached entry here is never one.)
       if (cachedAnalysis && !cachedAnalysis.live) { out.push({ matchId: id, cached: true, ...pick(cachedAnalysis) }); continue; }
       const m = await fetchMatch(c, store, id); // 1 Riot call if raw not cached
       const me = m && pStats(m, acct.puuid);
+      if (me?.remake) continue; // skip — doesn't count toward the requested total
       out.push({
-        matchId: id, cached: false, wasLive: !!cachedAnalysis, remake: me?.remake || false,
+        matchId: id, cached: false, wasLive: !!cachedAnalysis,
         result: me ? (me.win ? 'Victory' : 'Defeat') : '?',
         champ: me?.champ, kda: me ? `${me.k}/${me.d}/${me.a}` : '',
         when: m ? new Date(m.info.gameStartTimestamp).toISOString() : null,

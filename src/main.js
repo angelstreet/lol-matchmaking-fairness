@@ -340,7 +340,7 @@ async function loadHistory(offset) {
 
 function renderRows(games, container, prefix) {
   container.innerHTML = games.map((g, i) => {
-    if (g.remake) return `<div class="row dim">Remake — skipped</div>`;
+    if (g.remake) return ''; // server no longer sends remakes; guard is only for legacy lastSearch cache
     const key = prefix + i;
     const when = g.when ? new Date(g.when).toLocaleString() : '';
     const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking)}" id="b${key}">${verdictLabel(g.matchmaking)}</span>` : `<span id="b${key}"></span>`;
