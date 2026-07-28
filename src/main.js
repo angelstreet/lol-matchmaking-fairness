@@ -435,10 +435,16 @@ function chipsHTML(p, duoCtx) {
   if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role']);
   if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion']);
   if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
+  // Session-history warning flags — computed from the player's prior games / league entry,
+  // shown compactly; each is rare enough that a plain chip (no icon) reads fine.
+  if (p.flags?.includes('tilt')) c.push(['tilt?', '3+ games in the last ~3h with at least 2 losses — possible session tilt', 'flag-tilt']);
+  if (p.flags?.includes('rusty')) c.push(['rusty', "Hasn't played this queue in 14+ days — recent form may be less predictive", '']);
+  if (p.flags?.includes('smurf')) c.push(['SMURF?', 'Low account level with a strong season winrate or recent KDA — likely outclasses their displayed rank', 'flag-smurf']);
+  if (p.flags?.includes('afk-risk')) c.push(['AFK risk', 'A recent game ended in an early surrender for this player — possible AFK/DC pattern', 'flag-afk']);
   if (p.duo) {
     const label = duoCtx && duoCtx.count > 1 && duoCtx.idx != null ? `D${duoCtx.idx + 1}` : 'DUO';
     const tip = p.duoWith
-      ? `Duo with ${p.duoWith} — ${p.duoShared != null ? p.duoShared + '/5 previous games together' : 'proven by shared pre-game matches'}`
+      ? `Duo with ${p.duoWith} — ${p.duoRecord ? p.duoRecord + ' together in their last 5 shared games' : (p.duoShared != null ? p.duoShared + '/5 previous games together' : 'proven by shared pre-game matches')}`
       : 'Queued with a teammate — proven by shared pre-game matches';
     c.push([label, tip]);
   }
