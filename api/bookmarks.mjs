@@ -19,10 +19,33 @@ export default async function handler(req, res) {
       if (body.op === 'remove') await store.removeBookmark(uid, riotId);
       else await store.addBookmark(uid, riotId, region);
     }
-    res.status(200).json({ bookmarks: await store.listBookmarks(uid) });
+    res.status(200).json({ bookmarks: await cleanedBookmarks(uid) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+}
+
+// Normalizes + dedupes a user's stored bookmarks (case-insensitively, keeping the earliest row
+// per Riot ID) and self-cleans Turso: rows saved with a raw, non-normalized riot_id (e.g.
+// "Name #TAG" from before normalization was applied everywhere) get migrated to the normalized
+// id — added if that row doesn't already exist, then the stale raw row deleted — so this only
+// has to run once per stray row.
+async function cleanedBookmarks(uid) {
+  const raw = await store.listBookmarks(uid);
+  const seen = new Map();
+  const stale = [];
+  for (const b of raw) {
+    const norm = String(b.riotId || '').trim().replace(/\s*#\s*/, '#');
+    if (b.riotId !== norm) stale.push(b.riotId);
+    const key = norm.toLowerCase();
+    if (!seen.has(key)) seen.set(key, { riotId: norm, region: b.region });
+  }
+  const cleaned = [...seen.values()];
+  if (stale.length) {
+    for (const b of cleaned) await store.addBookmark(uid, b.riotId, b.region); // ensure normalized rows exist first
+    for (const rawId of stale) await store.removeBookmark(uid, rawId);
+  }
+  return cleaned;
 }
 
 function readBody(req) {

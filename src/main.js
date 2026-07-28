@@ -80,10 +80,33 @@ const verdictLabel = v => isFairVerdict(v) ? 'FAIR' : 'NOT FAIR';
 let CTX = { riotId: '', region: 'euw' };
 
 // ---- bookmarks: localStorage always; synced to the Clerk account when signed in ----
+// Riot IDs must be normalized (normRiotId, above) at every read/write/compare here — bookmarks
+// used to be saved with whatever raw string was in the field, so "Name #TAG" (typed with a
+// space) and "Name#TAG" would end up as two separate entries pointing at the same account.
 let clerk = null;
+const dedupeBookmarks = list => {
+  const seen = new Map();
+  for (const b of list || []) {
+    const riotId = normRiotId(b?.riotId);
+    if (!riotId) continue;
+    const key = riotId.toLowerCase();
+    if (!seen.has(key)) seen.set(key, { riotId, region: b.region });
+  }
+  return [...seen.values()];
+};
 const getBM = () => { try { return JSON.parse(localStorage.getItem('bookmarks') || '[]'); } catch { return []; } };
-const isBM = id => getBM().some(b => b.riotId.toLowerCase() === id.toLowerCase());
-const setBM = l => { localStorage.setItem('bookmarks', JSON.stringify(l)); renderBM(); };
+const isBM = id => getBM().some(b => normRiotId(b.riotId).toLowerCase() === normRiotId(id).toLowerCase());
+const setBM = l => { localStorage.setItem('bookmarks', JSON.stringify(dedupeBookmarks(l))); renderBM(); };
+// One-time migration for bookmarks saved before normalization was applied everywhere: clean up
+// space variants already sitting in localStorage (keeps the first of each, case-insensitive)
+// and write the deduped list straight back.
+(() => {
+  const raw = getBM();
+  const cleaned = dedupeBookmarks(raw);
+  if (cleaned.length !== raw.length || cleaned.some((c, i) => c.riotId !== raw[i]?.riotId)) {
+    localStorage.setItem('bookmarks', JSON.stringify(cleaned));
+  }
+})();
 function renderBM() {
   $('#bmDrop').innerHTML = getBM().map(b => `<div class="bmItem" data-riotid="${esc(b.riotId)}" data-region="${esc(b.region)}">★ ${esc(b.riotId)} <span class="dim">(${esc(b.region)})</span></div>`).join('');
   updateStar();
@@ -110,13 +133,13 @@ $('#bmStar').addEventListener('click', async () => {
   const riotId = normRiotId($('#riotId').value);
   if (!riotId.includes('#')) return;
   const region = $('#region').value, on = isBM(riotId);
-  setBM(on ? getBM().filter(b => b.riotId.toLowerCase() !== riotId.toLowerCase()) : [...getBM(), { riotId, region }]);
+  setBM(on ? getBM().filter(b => normRiotId(b.riotId).toLowerCase() !== riotId.toLowerCase()) : [...getBM(), { riotId, region }]);
   const synced = await serverBM(on ? 'remove' : 'add', riotId, region);
   if (synced) setBM(synced);
 });
 $('#bmDrop').addEventListener('click', e => {
   const item = e.target.closest('.bmItem'); if (!item) return;
-  $('#riotId').value = item.dataset.riotid;
+  $('#riotId').value = normRiotId(item.dataset.riotid);
   $('#region').value = item.dataset.region || 'euw';
   closeDrop();
   updateStar();
@@ -140,7 +163,7 @@ if (CLERK_PK) {
       const synced = await serverBM(null);
       if (synced) {
         const merged = [...synced];
-        for (const b of getBM()) if (!merged.some(m => m.riotId.toLowerCase() === b.riotId.toLowerCase())) { merged.push(b); await serverBM('add', b.riotId, b.region); }
+        for (const b of getBM()) if (!merged.some(m => normRiotId(m.riotId).toLowerCase() === normRiotId(b.riotId).toLowerCase())) { merged.push(b); await serverBM('add', b.riotId, b.region); }
         setBM(merged);
       }
     } else {
