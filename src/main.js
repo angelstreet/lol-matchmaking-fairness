@@ -463,25 +463,24 @@ function matchupHTML(g) {
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
   const duoCtxBase = { count: (g.duos || []).length, idxMap: duoPairIndex(g.duos) };
-  // Two lines per player: line one is #place + MVP/ACE + name + this game's KDA + bold GA;
-  // line two is every other chip (flags/duo/streak/cs/severity). Same element order on both
+  // Two lines per player: line one is #place + name + this game's KDA + bold GA; line two is
+  // every chip (MVP/ACE leading, then flags/duo/streak/cs/severity). Same element order on both
   // sides — the red column's .rgt text-align (and .p-chips' justify-content override) handles
   // the mirroring, so there's no need to special-case the DOM order per side anymore.
   const cellName = (p, side, fav) => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
-    const badge = badgeHTML(p);
     const name = `<span class="pname">${esc(p.n)}</span>`;
     const kda = p.kda ? `<span class="dim">${esc(p.kda)}</span>` : '';
     const ga = `<b>GA ${p.ga ?? '–'}</b>`;
-    const main = [place, badge, name, kda, ga].filter(Boolean).join(' ');
+    const main = [place, name, kda, ga].filter(Boolean).join(' ');
 
     // The lane-favor icon rides along with the other chips on line two — only the favored side
     // gets it, and it's a chip, not text next to the champion.
     const favChip = fav && fav.side === side
       ? `<span class="chip" title="${side === 'blue' ? 'Blue' : 'Red'} side ${fav.icon === '🔥' ? 'HEAVILY favored (>18 GA gap)' : 'favored (9–18 GA gap)'} in this lane — based on pre-game data only">${fav.icon}</span>`
       : '';
-    const chips = favChip + chipsHTML(p, { count: duoCtxBase.count, idx: duoCtxBase.idxMap[p.n] });
+    const chips = badgeHTML(p) + favChip + chipsHTML(p, { count: duoCtxBase.count, idx: duoCtxBase.idxMap[p.n] });
 
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
