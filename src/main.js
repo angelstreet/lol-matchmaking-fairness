@@ -72,6 +72,17 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 // the '#' everywhere before it's used as a cache/history key, so both forms resolve the same entry.
 const normRiotId = s => String(s || '').trim().replace(/\s*#\s*/, '#');
 const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-key': k } : {}; };
+// A request that SENT the user's stored key can fail because that key expired/was revoked
+// (lib/riot.mjs's friendly 401/403 message contains 'key invalid or expired') — when that
+// happens, auto-clear the dead key instead of leaving the user stuck retrying with it. Returns
+// true if it handled the error (caller should skip its normal ❌ error display), false otherwise.
+function handleKeyError(err, sentKey) {
+  if (!sentKey || !String(err?.message || '').includes('key invalid or expired')) return false;
+  $('#apiKey').value = '';
+  localStorage.removeItem('rgapi');
+  $('#status').textContent = 'Your saved Riot API key was expired and has been removed — paste a fresh one from developer.riotgames.com, or continue keyless (3/day).';
+  return true;
+}
 // Verdict is binary (FAIR / NOT FAIR — echoing the app name). Legacy cached entries may still
 // carry the old 'OK' / 'NOT OK' / 'BORDERLINE' values — map those to the same two states.
 const isFairVerdict = v => v === 'OK' || v === 'FAIR';
@@ -192,14 +203,16 @@ $('#f').addEventListener('submit', async e => {
   $('#go').innerHTML = '<span class="spinner"></span>';
   $('#status').textContent = '';
   $('#list').innerHTML = '';
+  let sentKey = false;
   try {
-    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(CTX.riotId)}&games=${$('#games').value}&region=${CTX.region}`, { headers: hdrs() });
+    const h = hdrs(); sentKey = !!h['x-api-key'];
+    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(CTX.riotId)}&games=${$('#games').value}&region=${CTX.region}`, { headers: h });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.status);
     renderRows(data.games, $('#list'), 'm');
     $('#status').textContent = data.games.length ? 'Pick a game to analyze — ✓ games are already analyzed (free & instant).' : 'No ranked solo games found.';
     loadHistory(0);
-  } catch (err) { $('#status').innerHTML = '❌ ' + esc(err.message); }
+  } catch (err) { if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message); }
   finally { endBusy(); $('#go').textContent = goLabel; }
 });
 
@@ -218,8 +231,10 @@ $('#liveBtn').addEventListener('click', async () => {
 });
 
 async function checkLive(riotId, region, attempt = 0) {
+  let sentKey = false;
   try {
-    const r = await fetch(`${API}/api/live?riotId=${encodeURIComponent(riotId)}&region=${region}`, { headers: hdrs() });
+    const h = hdrs(); sentKey = !!h['x-api-key'];
+    const r = await fetch(`${API}/api/live?riotId=${encodeURIComponent(riotId)}&region=${region}`, { headers: h });
     const data = await r.json();
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
       $('#liveBtn').innerHTML = `<span class="spinner"></span> #${attempt + 1}`;
@@ -235,7 +250,7 @@ async function checkLive(riotId, region, attempt = 0) {
       $('#status').textContent = '';
     }
   } catch (err) {
-    $('#status').innerHTML = '❌ ' + esc(err.message);
+    if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message);
   }
 }
 
@@ -312,8 +327,10 @@ async function analyze(matchId, btn, i, attempt = 0) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   beginBusy();
+  let sentKey = false;
   try {
-    const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(CTX.riotId)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}`, { headers: hdrs() });
+    const h = hdrs(); sentKey = !!h['x-api-key'];
+    const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(CTX.riotId)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}`, { headers: h });
     const data = await r.json();
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
       btn.innerHTML = `<span class="spinner"></span> #${attempt + 1}`;
@@ -331,7 +348,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
     card.classList.add('open');
     $('#status').textContent = '';
   } catch (err) {
-    $('#status').innerHTML = '❌ ' + esc(err.message);
+    if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message);
     btn.textContent = 'Analyze'; btn.disabled = false;
   } finally {
     endBusy();
@@ -342,8 +359,8 @@ const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
 const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge}</span>` : '';
 
 // Maps each player name to which duo pair they belong to (0-based index into g.duos, in the
-// order the backend found them), so a game with multiple duos can label them 🔗 D1 / 🔗 D2
-// instead of an ambiguous plain "duo" chip on every pair.
+// order the backend found them), so a game with multiple duos can label them D1 / D2 instead
+// of an ambiguous plain "DUO" chip on every pair.
 function duoPairIndex(duos) {
   const m = {};
   (duos || []).forEach(([a, b], idx) => { if (!(a in m)) m[a] = idx; if (!(b in m)) m[b] = idx; });
@@ -371,11 +388,11 @@ function enrichDuos(g) {
 function chipsHTML(p, duoCtx) {
   if (!p) return '';
   const c = [];
-  if (p.flags?.includes('autofill')) c.push(['⚠️ autofill', 'Playing outside their usual role']);
+  if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role']);
   if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion']);
   if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
   if (p.duo) {
-    const label = duoCtx && duoCtx.count > 1 && duoCtx.idx != null ? `🔗 D${duoCtx.idx + 1}` : '🔗 DUO';
+    const label = duoCtx && duoCtx.count > 1 && duoCtx.idx != null ? `D${duoCtx.idx + 1}` : 'DUO';
     const tip = p.duoWith
       ? `Duo with ${p.duoWith} — ${p.duoShared != null ? p.duoShared + '/5 previous games together' : 'proven by shared pre-game matches'}`
       : 'Queued with a teammate — proven by shared pre-game matches';
