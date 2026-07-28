@@ -479,14 +479,15 @@ function laneVerdict(a, b) {
   return `<span class="lv-${side}" title="${sideLabel} side ${strength}: +${ad} GA advantage before the game started">${side.toUpperCase()} +${ad}</span>`;
 }
 
-// Which side (if any) a lane is favored toward, for tinting that side's cells and for the
-// severity chip in that side's name group — kept separate from laneVerdict's HTML/text so the
-// middle "Favored" column only ever shows the centered EVEN/BLUE +n/RED +n text.
+// Which side (if any) a lane is favored toward, for tinting that side's cells — kept separate
+// from laneVerdict's HTML/text so the middle "Favored" column only ever shows the centered
+// EVEN/BLUE +n/RED +n text. The favored/heavily-favored severity itself is no longer shown as
+// a chip on the player — it's explained by the Favored-column value's own tooltip instead.
 function laneFavor(a, b) {
   if (a == null || b == null) return null;
   const d = a - b, ad = Math.abs(d);
   if (ad <= 8) return null;
-  return { side: d > 0 ? 'blue' : 'red', icon: ad > 18 ? '🔥' : '⚠️' };
+  return { side: d > 0 ? 'blue' : 'red' };
 }
 
 function matchupHTML(g) {
@@ -494,24 +495,19 @@ function matchupHTML(g) {
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
   const duoCtxBase = { count: (g.duos || []).length, idxMap: duoPairIndex(g.duos) };
   // Two lines per player: line one is #place + name + this game's KDA + bold GA; line two is
-  // every chip (MVP/ACE leading, then flags/duo/streak/cs/severity). Same element order on both
-  // sides — the red column's .rgt text-align (and .p-chips' justify-content override) handles
-  // the mirroring, so there's no need to special-case the DOM order per side anymore.
-  const cellName = (p, side, fav) => {
+  // every chip (MVP/ACE leading, then flags/duo/streak/cs). Same element order on both sides —
+  // the red column's .rgt text-align (and .p-chips' justify-content override) handles the
+  // mirroring, so there's no need to special-case the DOM order per side anymore. Lane-favor
+  // severity (favored/heavily favored) is NOT shown here — it's the Favored-column value's own
+  // tooltip below (laneVerdict), so it isn't duplicated per player.
+  const cellName = p => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
     const name = `<span class="pname">${esc(p.n)}</span>`;
     const kda = p.kda ? `<span class="dim">${esc(p.kda)}</span>` : '';
     const ga = `<b>GA ${p.ga ?? '–'}</b>`;
     const main = [place, name, kda, ga].filter(Boolean).join(' ');
-
-    // The lane-favor icon rides along with the other chips on line two — only the favored side
-    // gets it, and it's a chip, not text next to the champion.
-    const favChip = fav && fav.side === side
-      ? `<span class="chip" title="${side === 'blue' ? 'Blue' : 'Red'} side ${fav.icon === '🔥' ? 'HEAVILY favored (>18 GA gap)' : 'favored (9–18 GA gap)'} in this lane — based on pre-game data only">${fav.icon}</span>`
-      : '';
-    const chips = badgeHTML(p) + favChip + chipsHTML(p, { count: duoCtxBase.count, idx: duoCtxBase.idxMap[p.n] });
-
+    const chips = badgeHTML(p) + chipsHTML(p, { count: duoCtxBase.count, idx: duoCtxBase.idxMap[p.n] });
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
   const rows = ROLES.map(role => {
@@ -529,7 +525,7 @@ function matchupHTML(g) {
       if (!p) return '<span class="dim">—</span>';
       return `<span class="champ">${esc(p.champ)}</span>`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, 'blue', fav)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, 'red', fav)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');

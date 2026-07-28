@@ -105,6 +105,9 @@ td.you + td.you { border-left:none !important; }
 .sec-h { cursor:pointer; padding:8px 0; border-top:1px solid var(--line); color:var(--dim); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
 .sec-h.first { border-top:none; }
 .lv-even { color:var(--ok); } .lv-blue { color:var(--blue); font-weight:700; } .lv-red { color:var(--red); font-weight:700; }
+/* Favored/heavily-favored severity is explained only by this value's own tooltip (no more
+   per-player severity chip) — the dotted underline plus help cursor is the discovery hint. */
+.lv-even, .lv-blue, .lv-red { cursor:help; border-bottom:1px dotted currentColor; }
 .row .dim, .dim { color:var(--dim); font-size:13px; }
 .mini { margin-left:auto; padding:6px 14px; font-size:13px; }
 .note a { color:var(--ok); }
