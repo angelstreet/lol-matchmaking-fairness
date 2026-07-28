@@ -108,3 +108,43 @@ h4 { margin:10px 0 2px; }
 .foot a:hover { text-decoration:underline; }
 .reco { font-size:18px; font-weight:800; color:var(--ok); padding:10px 0; }
 @keyframes r { to { transform:rotate(360deg);} }
+
+/* ==== Mobile (phones, ≤640px) — CSS-only, no markup changes ==== */
+@media (max-width: 640px) {
+  body { padding:12px; }
+
+  /* form: the search combo gets its own row; games/region/buttons wrap together below it;
+     the key row (input + help text) stacks instead of sitting side by side */
+  .combo { flex-basis:100%; }
+  .keyrow { flex-direction:column; align-items:stretch; }
+  .keywrap, input#apiKey, .note { width:100%; }
+
+  /* matchup table -> stacked lane "cards". The DOM order per row is already
+     blue-champ, blue-player, verdict, red-champ, red-player, red-champ (or the equivalent —
+     see matchupHTML), so switching every table/tbody/tr/td to display:block just stacks that
+     same order vertically; no markup changes needed. */
+  .matchup, .matchup tbody, .matchup tr, .matchup td { display:block; width:100%; }
+  .matchup tr:first-child { display:none; } /* column header row — meaningless once stacked */
+  .matchup td { border-bottom:none; padding:2px 4px; }
+  .matchup tr:not(.teamrow) { border-top:1px solid var(--line); padding:8px 0; }
+  .matchup .champ-c { display:inline-block; width:auto; color:var(--dim); }
+  .matchup .mid-v { text-align:center; margin:6px 0; min-width:0; } /* also the TEAM row's badge cell */
+  .matchup .teamrow { border-top:2px solid var(--line); }
+  .matchup .teamrow td { border-top:none; padding:4px; }
+
+  /* details tables: table-layout:fixed (and its %-based colgroup) only makes sense once BLUE
+     and RED have room to sit side by side and need to line up — on a phone they're already
+     stacked full-width sections, so let columns size to content instead, and drop Dmg/CS
+     (columns 6 and 7: Player,Rank,Pos,Champ,KDA,Dmg,CS,GA,Form) to fit what's left. Horizontal
+     scroll (already set unconditionally on .details) is the fallback for whatever's still tight. */
+  .details-table { table-layout:auto; }
+  .details-table col { width:auto !important; }
+  .details-table td:first-child { max-width:none; overflow:visible; text-overflow:clip; white-space:normal; }
+  .details-table th:nth-child(6), .details-table td:nth-child(6),
+  .details-table th:nth-child(7), .details-table td:nth-child(7) { display:none; }
+
+  /* touch targets: ~44px effective height on tappable controls */
+  .mini { min-height:44px; padding:10px 16px; display:inline-flex; align-items:center; box-sizing:border-box; }
+  .sec-h { min-height:44px; display:flex; align-items:center; box-sizing:border-box; }
+  .head { min-height:44px; box-sizing:border-box; }
+}
