@@ -162,6 +162,21 @@ document.addEventListener('click', e => { if (!e.target.closest('.combo')) close
 $('#riotId').addEventListener('input', updateStar);
 renderBM();
 
+// Keep the lastSearch cache (used to restore the list on page load) in sync with what actually
+// got analyzed — otherwise a refresh right after analyzing a game shows that row back as
+// "Analyze" (stale) even though it's genuinely already analyzed and shows correctly in history,
+// since the cache was only ever written at search time. No-ops if the cache doesn't match this
+// riotId, or doesn't have this matchId (e.g. a live game not yet in the recent-games list).
+function syncLastSearchAnalyzed(riotId, matchId, entry) {
+  let cached;
+  try { cached = JSON.parse(localStorage.getItem('lastSearch') || 'null'); } catch { cached = null; }
+  if (!cached || cached.riotId !== riotId || !Array.isArray(cached.games)) return;
+  const idx = cached.games.findIndex(g => g.matchId === matchId);
+  if (idx === -1) return;
+  cached.games[idx] = { ...cached.games[idx], cached: true, matchmaking: entry.matchmaking, oneLiner: entry.oneLiner };
+  localStorage.setItem('lastSearch', JSON.stringify(cached));
+}
+
 // Restore the last search from cache on load so a refresh doesn't lose the list — the cached
 // list renders instantly, then a silent background refetch catches up on anything that changed
 // since. Failures during that background refetch are swallowed: errors only surface for
@@ -271,6 +286,7 @@ async function checkLive(riotId, region, attempt = 0) {
     else if (data.unsupported) { $('#status').textContent = 'In game, but not Ranked Solo/Duo.'; }
     else {
       CTX = { riotId, region };
+      syncLastSearchAnalyzed(riotId, data.entry.matchId, data.entry);
       renderLive(data.entry);
       $('#status').textContent = '';
     }
@@ -366,6 +382,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
     }
     if (!r.ok) throw new Error(data.error || r.status);
     const g = data.entry;
+    syncLastSearchAnalyzed(CTX.riotId, matchId, g);
     document.getElementById('d' + i).innerHTML = detailsHTML(g, i);
     const badgeEl = document.getElementById('b' + i);
     if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking); badgeEl.textContent = verdictLabel(g.matchmaking); }
