@@ -162,6 +162,30 @@ document.addEventListener('click', e => { if (!e.target.closest('.combo')) close
 $('#riotId').addEventListener('input', updateStar);
 renderBM();
 
+// Restore the last search from cache on load so a refresh doesn't lose the list — the cached
+// list renders instantly, then a silent background refetch catches up on anything that changed
+// since. Failures during that background refetch are swallowed: errors only surface for
+// user-initiated searches, the cached view is a perfectly fine thing to keep showing.
+(function restoreLastSearch() {
+  let cached;
+  try { cached = JSON.parse(localStorage.getItem('lastSearch') || 'null'); } catch { cached = null; }
+  if (!cached || !cached.riotId || !Array.isArray(cached.games)) return;
+  CTX = { riotId: cached.riotId, region: cached.region || 'euw' };
+  $('#riotId').value = cached.riotId;
+  $('#region').value = cached.region || 'euw';
+  updateStar();
+  renderRows(cached.games, $('#list'), 'm');
+  loadHistory(0);
+  if (Date.now() - (cached.ts || 0) < 60000) return; // cache is fresh enough, skip the refetch
+  fetch(`${API}/api/matches?riotId=${encodeURIComponent(cached.riotId)}&games=${$('#games').value}&region=${cached.region}`, { headers: hdrs() })
+    .then(r => (r.ok ? r.json() : Promise.reject()))
+    .then(data => {
+      renderRows(data.games, $('#list'), 'm');
+      localStorage.setItem('lastSearch', JSON.stringify({ riotId: cached.riotId, region: cached.region, games: data.games, ts: Date.now() }));
+    })
+    .catch(() => {}); // silent — keep the cached view as-is
+})();
+
 // ---- optional Clerk sign-in: accounts, cross-device bookmarks, per-user quota ----
 const CLERK_PK = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 if (CLERK_PK) {
@@ -211,6 +235,7 @@ $('#f').addEventListener('submit', async e => {
     if (!r.ok) throw new Error(data.error || r.status);
     renderRows(data.games, $('#list'), 'm');
     $('#status').textContent = data.games.length ? 'Pick a game to analyze — ✓ games are already analyzed (free & instant).' : 'No ranked solo games found.';
+    localStorage.setItem('lastSearch', JSON.stringify({ riotId: CTX.riotId, region: CTX.region, games: data.games, ts: Date.now() }));
     loadHistory(0);
   } catch (err) { if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message); }
   finally { endBusy(); $('#go').textContent = goLabel; }
