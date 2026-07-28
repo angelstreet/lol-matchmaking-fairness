@@ -504,10 +504,13 @@ function matchupHTML(g) {
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
+  // Legacy entries analyzed before duo synergy scoring don't have g.duoBonus — the (+N duo)
+  // tag is simply omitted for them rather than showing a bogus +0.
+  const teamGaText = (avgGa, bonus) => `avg GA ${avgGa ?? '–'}` + (bonus > 0 ? ` <span title="GA bonus for proven duo synergy">(+${bonus} duo)</span>` : '');
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${verdictCls(g.matchmaking)}">${verdictLabel(g.matchmaking)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking)}">${verdictLabel(g.matchmaking)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
   </table>`;
 }
 
