@@ -339,9 +339,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
 }
 
 const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
-const ord = n => n + (n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th');
 const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge}</span>` : '';
-const placeHTML = p => p?.place ? `<span class="dim" title="In-game performance rank out of all 10 players (KDA, kill participation, damage share, CS, vision)">${ord(p.place)}</span>` : '';
 
 // Maps each player name to which duo pair they belong to (0-based index into g.duos, in the
 // order the backend found them), so a game with multiple duos can label them 🔗 D1 / 🔗 D2
@@ -350,6 +348,20 @@ function duoPairIndex(duos) {
   const m = {};
   (duos || []).forEach(([a, b], idx) => { if (!(a in m)) m[a] = idx; if (!(b in m)) m[b] = idx; });
   return m;
+}
+
+// Legacy cached entries may predate the duoWith/duoShared fields (or even the duo flag) on
+// player objects, since those were added after duo detection itself. g.duos is always present
+// though, so backfill from it — mutates g.players in place and is safe to call on every render.
+function enrichDuos(g) {
+  if (!g?.duos?.length || !g.players?.length) return g;
+  for (const [a, b, sharedText] of g.duos) {
+    const n = parseInt(sharedText, 10);
+    const pa = g.players.find(p => p.n === a), pb = g.players.find(p => p.n === b);
+    if (pa) { pa.duo = true; if (pa.duoWith == null) pa.duoWith = b; if (pa.duoShared == null) pa.duoShared = n; }
+    if (pb) { pb.duo = true; if (pb.duoWith == null) pb.duoWith = a; if (pb.duoShared == null) pb.duoShared = n; }
+  }
+  return g;
 }
 
 // Shared compact chip group for a player's flags/duo/streak/cspm — used identically in the
@@ -363,8 +375,10 @@ function chipsHTML(p, duoCtx) {
   if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion']);
   if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
   if (p.duo) {
-    const label = duoCtx && duoCtx.count > 1 && duoCtx.idx != null ? `🔗 D${duoCtx.idx + 1}` : '🔗 duo';
-    const tip = p.duoWith ? `Duo with ${p.duoWith} — proven by shared pre-game matches` : 'Queued with a teammate — proven by shared pre-game matches';
+    const label = duoCtx && duoCtx.count > 1 && duoCtx.idx != null ? `🔗 D${duoCtx.idx + 1}` : '🔗 DUO';
+    const tip = p.duoWith
+      ? `Duo with ${p.duoWith} — ${p.duoShared != null ? p.duoShared + '/5 previous games together' : 'proven by shared pre-game matches'}`
+      : 'Queued with a teammate — proven by shared pre-game matches';
     c.push([label, tip]);
   }
   if (p.streak) {
@@ -441,18 +455,21 @@ function matchupHTML(g) {
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
-  const duoLines = (g.duos || []).map(d => {
-    const sideEl = d[3] === 'ally' ? `<span class="gold">${esc(d[3])}</span>` : `<span class="duo-enemy">${esc(d[3])}</span>`;
-    return `<div class="duo">🔗 DUO (${sideEl}): ${esc(d[0])} + ${esc(d[1])} — ${esc(d[2])}</div>`;
-  }).join('');
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
     <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · avg GA ${gB ?? '–'}</b></td><td class="mid-v">${laneVerdict(gB, gR)} <span class="badge ${verdictCls(g.matchmaking)}">${verdictLabel(g.matchmaking)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · avg GA ${gR ?? '–'}</b></td></tr>
-  </table>${duoLines}`;
+  </table>`;
 }
 
+// Column widths shared by both team tables (via an identical <colgroup> in each) so BLUE and
+// RED line up vertically — table-layout:fixed makes the browser honor these instead of sizing
+// columns to content, which is what caused the two tables to drift apart before.
+const DETAILS_COLS = [26, 15, 9, 10, 8, 8, 6, 5, 13];
+const detailsColgroup = '<colgroup>' + DETAILS_COLS.map(w => `<col style="width:${w}%">`).join('') + '</colgroup>';
+
 function detailsHTML(g, key = 'x') {
+  enrichDuos(g);
   const meName = CTX.riotId.replace('#', '-').toLowerCase();
   const duoCtxBase = { count: (g.duos || []).length, idxMap: duoPairIndex(g.duos) };
   const teams = ['blue', 'red'].map(t => {
@@ -461,21 +478,23 @@ function detailsHTML(g, key = 'x') {
     const won = (g.result === 'Victory') === (g.userTeam === t);
     return '<h4><span class="tm-' + t + '">' + t.toUpperCase() + '</span>' + (g.userTeam === t ? ' <span class="gold">YOU</span>' : '') + ' · ' + (won ? 'win' : 'loss') +
       (g.teamGA && g.teamGA[t] ? ' · avg GA ' + g.teamGA[t] : '') + '</h4>' +
-      '<table><tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>Perf</th><th>GA</th><th title="Wins-losses in their last 5 ranked games before this one">Form (last 5 before game)</th></tr>' +
+      '<table class="details-table">' + detailsColgroup + '<tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>GA</th><th title="Wins-losses in their last 5 ranked games before this one">Form (last 5 before game)</th></tr>' +
       rows.map(p => {
         const isMe = p.n.replace('#', '-').toLowerCase() === meName;
         const gaCls = p.ga == null ? '' : p.ga >= 70 ? 'ga-hi' : p.ga <= 45 ? 'ga-lo' : '';
+        const badge = badgeHTML(p);
         const chips = chipsHTML(p, { count: duoCtxBase.count, idx: duoCtxBase.idxMap[p.n] });
-        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + esc(p.n) + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
+        // MVP/ACE and the flag/duo/streak/cspm chips all live in the Player cell's chip group —
+        // keeping the other columns plain text is what makes the fixed-width alignment hold up.
+        const nameCell = `<span class="pcell"><span class="pname">${esc(p.n)}</span>${badge}${chips}</span>`;
+        return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + nameCell + '</td><td>' + esc(p.rank) + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
-          '</td><td>' + badgeHTML(p) + (p.badge ? ' ' : '') + placeHTML(p) + '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') +
-          (chips ? ' <span class="pcell">' + chips + '</span>' : '') + '</td></tr>';
+          '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') + '</td></tr>';
       }).join('') + '</table>';
   }).join('');
   const mId = 'sm' + key, dId = 'sd' + key;
-  // Matchup summary is the primary view (expanded, and now includes the duo lines directly
-  // below the table — no need to open Details just to see who's queued together); full team
-  // tables are on-demand (collapsed). Sections are toggled by the delegated .sec-h handler below.
+  // Matchup summary is the primary view (expanded); full team tables are on-demand (collapsed).
+  // Sections are toggled by the delegated .sec-h handler below.
   return `<div class="sec-h first" data-target="${mId}">▾ Matchup</div>` +
     `<div class="sec-b" id="${mId}">${matchupHTML(g)}</div>` +
     `<div class="sec-h" data-target="${dId}">▸ Details</div>` +
