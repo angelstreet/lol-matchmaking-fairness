@@ -70,8 +70,11 @@ td.you + td.you { border-left:none !important; }
 .gcard .details { display:none; border-top:1px solid var(--line); padding:12px 16px; overflow-x:auto; }
 .gcard.open .details { display:block; }
 .matchup { margin-bottom:16px; }
-.matchup td { vertical-align:middle; }
-.matchup .mid-v { text-align:center; white-space:nowrap; min-width:90px; }
+/* top, not middle: a chip line on one side but not the other would otherwise shift that row's
+   line 1 off the other side's, since middle-alignment centers each cell against the row's
+   tallest content. Top-aligning keeps line 1 on a shared baseline regardless. */
+.matchup td { vertical-align:top; }
+.matchup .mid-v { text-align:center; white-space:nowrap; min-width:90px; padding-top:9px; }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }
