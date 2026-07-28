@@ -75,14 +75,16 @@ td.you + td.you { border-left:none !important; }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }
-/* Each matchup player cell is two stacked lines: #place + MVP/ACE + name + game KDA + GA on
-   line one, every other chip (OTP/duo/flags/streak/cs/severity) on line two. Same element order
-   on both sides — text-align (inherited from .rgt on the red side) does the mirroring, so there's
-   no need to reverse the DOM order the way the old single-line badge/chip group had to. */
+/* Each matchup player cell is two stacked lines: #place + name + game KDA + GA on line one,
+   every chip (MVP/ACE leading, then OTP/duo/flags/streak/cs/severity) on line two. Same element
+   order on both sides — no per-side DOM reversal needed. Red side LANE rows are left-aligned
+   like blue for scannability (names start at a consistent edge); only the TEAM footer row's
+   right cell keeps the .rgt right-alignment above, as a short bookend. */
 .place { color:var(--dim); font-size:11px; font-weight:700; }
 .matchup .pname { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
 .p-chips { display:flex; gap:4px; flex-wrap:wrap; margin-top:3px; }
-.matchup .rgt .p-chips { justify-content:flex-end; }
+.matchup tr:not(.teamrow) .rgt { text-align:left; }
+.matchup tr:not(.teamrow) .rgt .p-chips { justify-content:flex-start; }
 /* BLUE/RED team tables share fixed column widths (via an identical <colgroup>) so they line
    up vertically. The Player cell is the one variable-content column — long "Name#TAG" plus a
    chip group — so it gets the max-width:0 + overflow trick to ellipsis instead of pushing the
