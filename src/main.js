@@ -17,7 +17,10 @@ document.querySelector('#app').innerHTML = `
     <button id="go">Find my games</button>
     <button type="button" id="liveBtn" class="live">🔴 Live game</button>
     <div class="keyrow">
-      <input id="apiKey" name="riot-api-key" placeholder="Your Riot API key (optional)" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore>
+      <div class="keywrap">
+        <input id="apiKey" name="riot-api-key" placeholder="Your Riot API key (optional)" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore>
+        <button type="button" id="clearKey" title="Clear saved key">✕</button>
+      </div>
       <div class="note">
         <a href="#" id="howKey">How to get your own free key (2 min) ▾</a>
         <div id="keyHelp" style="display:none">
@@ -42,6 +45,27 @@ const $ = s => document.querySelector(s);
 $('#apiKey').value = localStorage.getItem('rgapi') || '';
 $('#riotId').value = localStorage.getItem('riotId') || '';
 $('#howKey').addEventListener('click', e => { e.preventDefault(); const k = $('#keyHelp'); k.style.display = k.style.display === 'none' ? 'block' : 'none'; });
+
+// The key field used to only persist on form submit, so pasting a fresh key without hitting
+// "Find my games" (or reloading the page right after) would silently keep using the stale one
+// — dots look the same either way. Persist on every keystroke instead, with a brief green-border
+// flash for feedback that the new value actually took, plus a one-click way to wipe it clean.
+let keyFlashTimer = null;
+function flashKeyField() {
+  const el = $('#apiKey');
+  el.classList.add('key-updated');
+  clearTimeout(keyFlashTimer);
+  keyFlashTimer = setTimeout(() => el.classList.remove('key-updated'), 900);
+}
+$('#apiKey').addEventListener('input', () => {
+  localStorage.setItem('rgapi', $('#apiKey').value.trim());
+  flashKeyField();
+});
+$('#clearKey').addEventListener('click', () => {
+  $('#apiKey').value = '';
+  localStorage.removeItem('rgapi');
+  $('#apiKey').focus();
+});
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Riot IDs are typed inconsistently ("Name #TAG" vs "Name#TAG") — normalize whitespace around

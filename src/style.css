@@ -8,7 +8,11 @@ form { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 input, select { background:var(--card); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:10px 12px; font-size:15px; }
 .combo { position:relative; flex:1; min-width:220px; display:flex; }
 input#riotId { flex:1; min-width:200px; width:100%; padding-right:40px; }
-input#apiKey { width:270px; }
+.keywrap { position:relative; display:inline-flex; }
+input#apiKey { width:270px; padding-right:28px; transition:border-color .3s ease; }
+input#apiKey.key-updated { border-color:var(--ok); }
+#clearKey { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:var(--dim); font-size:13px; padding:2px 4px; line-height:1; cursor:pointer; }
+#clearKey:hover { color:var(--txt); }
 button { background:var(--ok); color:#06251b; border:0; border-radius:8px; padding:10px 20px; font-weight:700; font-size:15px; cursor:pointer; }
 button:disabled { opacity:.5; cursor:wait; }
 .keyrow { display:flex; gap:14px; align-items:flex-start; width:100%; flex-wrap:wrap; }
