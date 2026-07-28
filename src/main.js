@@ -5,7 +5,7 @@ const API = import.meta.env.VITE_API_URL || '';
 
 document.querySelector('#app').innerHTML = `
   <h1>LoL <span>Matchmaking Fairness</span> <span id="clerkBtn"></span></h1>
-  <div class="sub">Was your game winnable? Ranked Solo/Duo only · pre-game form for all 10 players · proven duo detection · GA scores · official Riot API</div>
+  <div class="sub"><span class="sub-short">Was your game winnable? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span></div>
   <form id="f" autocomplete="off">
     <div class="combo">
       <input id="riotId" name="riot-search" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
@@ -14,7 +14,7 @@ document.querySelector('#app').innerHTML = `
     </div>
     <select id="games"><option>3</option><option selected>5</option><option>10</option></select>
     <select id="region"><option selected>euw</option><option>eune</option><option>na</option><option>kr</option></select>
-    <button id="go">Find my games</button>
+    <button id="go">Find games</button>
     <button type="button" id="liveBtn" class="live">🔴 Live game</button>
     <div class="keyrow">
       <div class="keywrap">
@@ -27,8 +27,8 @@ document.querySelector('#app').innerHTML = `
           1. Go to <a href="https://developer.riotgames.com" target="_blank" rel="noreferrer">developer.riotgames.com</a> and sign in with your Riot account.<br>
           2. Copy the <b>Development API Key</b> on the dashboard and paste it here.<br>
           3. It expires every 24h (Riot's rule) — just grab a new one. The key stays in your browser and is only used for your own requests.
+          <div>No key? <b>3 free analyses/day</b><span class="note-more"> (may queue). Analyzed games are always free & instant.</span></div>
         </div>
-        <div>No key? <b>3 free analyses/day</b> (may queue). Analyzed games are always free & instant.</div>
       </div>
     </div>
   </form>
@@ -47,7 +47,7 @@ $('#riotId').value = localStorage.getItem('riotId') || '';
 $('#howKey').addEventListener('click', e => { e.preventDefault(); const k = $('#keyHelp'); k.style.display = k.style.display === 'none' ? 'block' : 'none'; });
 
 // The key field used to only persist on form submit, so pasting a fresh key without hitting
-// "Find my games" (or reloading the page right after) would silently keep using the stale one
+// "Find games" (or reloading the page right after) would silently keep using the stale one
 // — dots look the same either way. Persist on every keystroke instead, with a brief green-border
 // flash for feedback that the new value actually took, plus a one-click way to wipe it clean.
 let keyFlashTimer = null;
@@ -331,12 +331,14 @@ function renderRows(games, container, prefix) {
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
     const isLive = g.live || g.result === 'Live';
     const resultEl = isLive ? '<span class="badge b-live">LIVE</span>' : `<span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>`;
+    // Result + champ/KDA + verdict badge come first (in that order) so they wrap as one group
+    // on narrow screens — the date/duration and one-liner are lower-priority and wrap below.
     return `<div class="gcard" id="g${key}">
       <div class="row">
         ${resultEl}
         <span>${esc(g.champ)} ${esc(g.kda)}</span>
-        <span class="dim">${esc(g.duration)} · ${when}</span>
         ${badge}
+        <span class="dim">${esc(g.duration)} · ${when}</span>
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
         <button class="mini" data-mid="${esc(g.matchId)}" data-key="${key}">${g.cached ? '✓ View' : 'Analyze'}</button>
       </div>

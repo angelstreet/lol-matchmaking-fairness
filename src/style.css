@@ -116,9 +116,22 @@ h4 { margin:10px 0 2px; }
 @media (max-width: 640px) {
   body { padding:12px; }
 
-  /* form: the search combo gets its own row; games/region/buttons wrap together below it;
-     the key row (input + help text) stacks instead of sitting side by side */
-  .combo { flex-basis:100%; }
+  /* header: keep the title from wrapping awkwardly against the Sign in button */
+  h1 { font-size:19px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+  #clerkBtn { float:none; margin-left:auto; }
+
+  /* copy reduction: mobile keeps only the essential fragment of each — see the .sub-short/
+     .sub-more and .note-more split in src/main.js for what's hidden here (the "No key?" note
+     also moved inside the collapsed #keyHelp block in the markup itself, for both screen sizes). */
+  .sub-more, .note-more { display:none; }
+
+  /* form: exactly two rows. Row 1 is the profile combo + games count + region, all on one
+     line — the combo shrinks to a lower min-width and flex:1 (inherited from the base .combo
+     rule) grows it to fill whatever the two selects don't use, which leaves zero space left on
+     the line and reliably pushes row 2 (the buttons) onto its own line with no extra markup.
+     Row 2 is both buttons at ~50/50. The key row still stacks; buttons shrink to match. */
+  .combo { min-width:140px; }
+  #go, #liveBtn { flex:1 1 calc(50% - 4px); padding:8px 12px; font-size:14px; }
   .keyrow { flex-direction:column; align-items:stretch; }
   .keywrap, input#apiKey, .note { width:100%; }
 
@@ -146,8 +159,13 @@ h4 { margin:10px 0 2px; }
   .details-table th:nth-child(6), .details-table td:nth-child(6),
   .details-table th:nth-child(7), .details-table td:nth-child(7) { display:none; }
 
-  /* touch targets: ~44px effective height on tappable controls */
-  .mini { min-height:44px; padding:10px 16px; display:inline-flex; align-items:center; box-sizing:border-box; }
+  /* touch targets: ~44px effective height on tappable controls, except .mini (the row's
+     Analyze/View button, also reused by history-nav/sign-in buttons) which reads as too bulky
+     at that size on a game card — a smaller but still tappable ~38px instead. */
+  .mini { min-height:38px; padding:6px 12px; display:inline-flex; align-items:center; box-sizing:border-box; }
   .sec-h { min-height:44px; display:flex; align-items:center; box-sizing:border-box; }
   .head { min-height:44px; box-sizing:border-box; }
+
+  /* game card header row: tighter padding so cards read as compact on a phone */
+  .row { padding:8px 12px; }
 }
