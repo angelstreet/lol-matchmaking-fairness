@@ -561,3 +561,8 @@ document.addEventListener('click', e => {
   body.style.display = willShow ? '' : 'none';
   h.textContent = h.textContent.replace(/^./, willShow ? '▾' : '▸');
 });
+
+// PWA: registers the static-shell service worker (public/sw.js) so the app is installable
+// ("Add to Home Screen") and the shell still loads offline. Never blocks page load, and
+// silently no-ops wherever it's unsupported or fails (e.g. non-HTTPS dev origins).
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
