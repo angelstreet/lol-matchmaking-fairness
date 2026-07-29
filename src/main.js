@@ -189,13 +189,13 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
   $('#riotId').value = cached.riotId;
   $('#region').value = cached.region || 'euw';
   updateStar();
-  renderRows(cached.games, $('#list'), 'm');
+  renderRows(cached.games, $('#list'), 'm', cached.riotId);
   loadHistory(0);
   if (Date.now() - (cached.ts || 0) < 60000) return; // cache is fresh enough, skip the refetch
   fetch(`${API}/api/matches?riotId=${encodeURIComponent(cached.riotId)}&games=${$('#games').value}&region=${cached.region}`, { headers: hdrs() })
     .then(r => (r.ok ? r.json() : Promise.reject()))
     .then(data => {
-      renderRows(data.games, $('#list'), 'm');
+      renderRows(data.games, $('#list'), 'm', cached.riotId);
       localStorage.setItem('lastSearch', JSON.stringify({ riotId: cached.riotId, region: cached.region, games: data.games, ts: Date.now() }));
     })
     .catch(() => {}); // silent — keep the cached view as-is
@@ -234,21 +234,26 @@ function endBusy() { busyCount = Math.max(0, busyCount - 1); if (busyCount === 0
 
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
-  CTX = { riotId: normRiotId($('#riotId').value), region: $('#region').value };
+  // CTX (and localStorage's 'riotId') must NOT be reassigned until the search actually succeeds
+  // — otherwise a failed lookup (e.g. expired key) leaves CTX pointing at the new account while
+  // the rows/history still on screen belong to the previous one, and every subsequent "View"
+  // click on those rows targets the wrong account. Use a local attempt for the fetch instead.
+  const attempt = { riotId: normRiotId($('#riotId').value), region: $('#region').value };
   localStorage.setItem('rgapi', $('#apiKey').value.trim());
-  localStorage.setItem('riotId', CTX.riotId);
   const goLabel = $('#go').textContent;
   beginBusy();
   $('#go').innerHTML = '<span class="spinner"></span>';
   $('#status').textContent = '';
-  $('#list').innerHTML = '';
   let sentKey = false;
   try {
     const h = hdrs(); sentKey = !!h['x-api-key'];
-    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(CTX.riotId)}&games=${$('#games').value}&region=${CTX.region}`, { headers: h });
+    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(attempt.riotId)}&games=${$('#games').value}&region=${attempt.region}`, { headers: h });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.status);
-    renderRows(data.games, $('#list'), 'm');
+    CTX = attempt;
+    localStorage.setItem('riotId', CTX.riotId);
+    $('#list').innerHTML = ''; // only clear the previous list once the new one is ready to replace it
+    renderRows(data.games, $('#list'), 'm', CTX.riotId);
     $('#status').textContent = data.games.length ? 'Pick a game to analyze — ✓ games are already analyzed (free & instant).' : 'No ranked solo games found.';
     localStorage.setItem('lastSearch', JSON.stringify({ riotId: CTX.riotId, region: CTX.region, games: data.games, ts: Date.now() }));
     loadHistory(0);
@@ -325,7 +330,7 @@ async function loadHistory(offset) {
     const d = await r.json();
     if (!r.ok || !d.total) { $('#histWrap').style.display = 'none'; return; }
     $('#histWrap').style.display = 'block';
-    renderRows(d.games, $('#hist'), 'h' + offset + '_');
+    renderRows(d.games, $('#hist'), 'h' + offset + '_', CTX.riotId);
     if (d.total <= 10) { $('#histNav').innerHTML = ''; return; }
     const from = offset + 1, to = offset + d.games.length;
     $('#histNav').innerHTML =
@@ -338,7 +343,7 @@ async function loadHistory(offset) {
   } catch { $('#histWrap').style.display = 'none'; }
 }
 
-function renderRows(games, container, prefix) {
+function renderRows(games, container, prefix, rid) {
   container.innerHTML = games.map((g, i) => {
     if (g.remake) return ''; // server no longer sends remakes; guard is only for legacy lastSearch cache
     const key = prefix + i;
@@ -349,6 +354,11 @@ function renderRows(games, container, prefix) {
     const resultEl = isLive ? '<span class="badge b-live">LIVE</span>' : `<span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>`;
     // Result + champ/KDA + verdict badge come first (in that order) so they wrap as one group
     // on narrow screens — the date/duration and one-liner are lower-priority and wrap below.
+    // Each row's button remembers the account it belongs to (data-rid) rather than relying on
+    // whatever CTX happens to be at click time — CTX can drift (e.g. a failed later search that
+    // leaves the previous rows on screen), but the row itself always knows its own account.
+    // data-force marks rows that came back as a live-only snapshot (g.wasLive from /api/matches)
+    // — their "Analyze" click must force a fresh deep analysis rather than re-serving the snapshot.
     return `<div class="gcard" id="g${key}">
       <div class="row">
         ${resultEl}
@@ -356,7 +366,7 @@ function renderRows(games, container, prefix) {
         ${badge}
         <span class="dim">${esc(g.duration)} · ${when}</span>
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
-        <button class="mini" data-mid="${esc(g.matchId)}" data-key="${key}">${g.cached ? '✓ View' : 'Analyze'}</button>
+        <button class="mini" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
       </div>
       <div class="details" id="d${key}"></div>
     </div>`;
@@ -367,13 +377,17 @@ function renderRows(games, container, prefix) {
 async function analyze(matchId, btn, i, attempt = 0) {
   const card = document.getElementById('g' + i);
   if (btn.dataset.loaded) { card.classList.toggle('open'); btn.textContent = card.classList.contains('open') ? '▴ Hide' : '✓ View'; return; }
+  // The row's own account (set at render time), not CTX — CTX may have moved on since these
+  // rows were rendered (a failed later search leaves stale rows on screen without touching CTX).
+  const rid = btn.dataset.rid || CTX.riotId;
+  const force = btn.dataset.force === '1' ? '&force=1' : '';
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   beginBusy();
   let sentKey = false;
   try {
     const h = hdrs(); sentKey = !!h['x-api-key'];
-    const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(CTX.riotId)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}`, { headers: h });
+    const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(rid)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}${force}`, { headers: h });
     const data = await r.json();
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
       btn.innerHTML = `<span class="spinner"></span> #${attempt + 1}`;
@@ -382,8 +396,8 @@ async function analyze(matchId, btn, i, attempt = 0) {
     }
     if (!r.ok) throw new Error(data.error || r.status);
     const g = data.entry;
-    syncLastSearchAnalyzed(CTX.riotId, matchId, g);
-    document.getElementById('d' + i).innerHTML = detailsHTML(g, i);
+    syncLastSearchAnalyzed(rid, matchId, g);
+    document.getElementById('d' + i).innerHTML = detailsHTML(g, i, rid);
     const badgeEl = document.getElementById('b' + i);
     if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking); badgeEl.textContent = verdictLabel(g.matchmaking); }
     const oneEl = document.getElementById('o' + i);
@@ -490,8 +504,8 @@ function laneFavor(a, b) {
   return { side: d > 0 ? 'blue' : 'red' };
 }
 
-function matchupHTML(g) {
-  const meName = CTX.riotId.replace('#', '-').toLowerCase();
+function matchupHTML(g, rid) {
+  const meName = (rid || CTX.riotId).replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
   const duoCtxBase = { count: (g.duos || []).length, idxMap: duoPairIndex(g.duos) };
   // Two lines per player: line one is #place + name + this game's KDA + bold GA; line two is
@@ -545,9 +559,9 @@ function matchupHTML(g) {
 const DETAILS_COLS = [26, 15, 9, 10, 8, 8, 6, 5, 13];
 const detailsColgroup = '<colgroup>' + DETAILS_COLS.map(w => `<col style="width:${w}%">`).join('') + '</colgroup>';
 
-function detailsHTML(g, key = 'x') {
+function detailsHTML(g, key = 'x', rid) {
   enrichDuos(g);
-  const meName = CTX.riotId.replace('#', '-').toLowerCase();
+  const meName = (rid || CTX.riotId).replace('#', '-').toLowerCase();
   const duoCtxBase = { count: (g.duos || []).length, idxMap: duoPairIndex(g.duos) };
   const teams = ['blue', 'red'].map(t => {
     const rows = (g.players || []).filter(p => p.team === t);
@@ -575,7 +589,7 @@ function detailsHTML(g, key = 'x') {
   // Matchup summary is the primary view (expanded); full team tables are on-demand (collapsed).
   // Sections are toggled by the delegated .sec-h handler below.
   return `<div class="sec-h first" data-target="${mId}">▾ Matchup</div>` +
-    `<div class="sec-b" id="${mId}">${matchupHTML(g)}</div>` +
+    `<div class="sec-b" id="${mId}">${matchupHTML(g, rid)}</div>` +
     `<div class="sec-h" data-target="${dId}">▸ Details</div>` +
     `<div class="sec-b" id="${dId}" style="display:none">${teams}</div>`;
 }

@@ -18,10 +18,13 @@ export default async function handler(req, res) {
     const summoner = `${name}-${tag}`;
 
     // 1. shared cache — free for everyone, no key needed. A live-only entry (still mid-game
-    // when it was cached) doesn't count as a hit here — fall through to run the full deep
-    // analysis, which overwrites the same (matchId, summoner) row with the final result.
+    // when it was cached) is still served keylessly by default — it only gets re-analyzed when
+    // the client explicitly asks for the final result (force=1, used by the list's upgrade path)
+    // once the match has actually ended. Without that, a plain history "View" click on a live
+    // snapshot would force a re-analysis (and require a key) just to view what's already cached.
+    const force = req.query.force === '1';
     const cached = await store.getAnalysis(matchId, summoner);
-    if (cached && !cached.live) return res.status(200).json({ cached: true, entry: cached });
+    if (cached && (!cached.live || !force)) return res.status(200).json({ cached: true, entry: cached });
 
     const userKey = req.headers['x-api-key'];
     const sharedKey = process.env.RIOT_API_KEY;
