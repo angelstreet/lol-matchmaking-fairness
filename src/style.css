@@ -110,6 +110,9 @@ td.you + td.you { border-left:none !important; }
 .lv-even, .lv-blue, .lv-red { cursor:help; border-bottom:1px dotted currentColor; }
 .row .dim, .dim { color:var(--dim); font-size:13px; }
 .mini { margin-left:auto; padding:6px 14px; font-size:13px; }
+/* Re-analyze icon button sits right after .mini's View button — it shouldn't also claim the
+   margin-left:auto that pushes .mini to the row's right edge (that job stays with View). */
+.icon-btn { min-width:0; padding:6px 10px; margin-left:6px; font-size:14px; }
 .note a { color:var(--ok); }
 #keyHelp { margin-top:8px; line-height:1.7; }
 h4 { margin:10px 0 2px; }
@@ -171,6 +174,9 @@ h4 { margin:10px 0 2px; }
      Analyze/View button, also reused by history-nav/sign-in buttons) which reads as too bulky
      at that size on a game card — a smaller but still tappable ~38px instead. */
   .mini { min-height:38px; padding:6px 12px; display:inline-flex; align-items:center; box-sizing:border-box; }
+  /* keep the re-analyze icon compact on phones too — same touch-friendly height as .mini, but
+     narrower padding since it's a single glyph, not a label. */
+  .icon-btn { min-height:38px; padding:6px 8px; margin-left:4px; }
   .sec-h { min-height:44px; display:flex; align-items:center; box-sizing:border-box; }
   .head { min-height:44px; box-sizing:border-box; }
 

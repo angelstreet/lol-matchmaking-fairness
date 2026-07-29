@@ -359,6 +359,13 @@ function renderRows(games, container, prefix, rid) {
     // leaves the previous rows on screen), but the row itself always knows its own account.
     // data-force marks rows that came back as a live-only snapshot (g.wasLive from /api/matches)
     // — their "Analyze" click must force a fresh deep analysis rather than re-serving the snapshot.
+    // Cached rows additionally get a small "↻" re-analyze button next to View, so an already
+    // -analyzed game can be re-judged with whatever the scoring engine looks like today. It
+    // carries its own data-force="1" (independent of data-wasLive), and shares the row's key so
+    // analyze() can look up the View button (id v${key}) and keep the two in sync.
+    const reanalyzeBtn = g.cached
+      ? `<button class="mini icon-btn" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="Re-analyze with the latest scoring (needs a key or a free slot)">↻</button>`
+      : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
         ${resultEl}
@@ -366,7 +373,8 @@ function renderRows(games, container, prefix, rid) {
         ${badge}
         <span class="dim">${esc(g.duration)} · ${when}</span>
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
-        <button class="mini" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
+        <button class="mini" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
+        ${reanalyzeBtn}
       </div>
       <div class="details" id="d${key}"></div>
     </div>`;
@@ -376,13 +384,23 @@ function renderRows(games, container, prefix, rid) {
 
 async function analyze(matchId, btn, i, attempt = 0) {
   const card = document.getElementById('g' + i);
-  if (btn.dataset.loaded) { card.classList.toggle('open'); btn.textContent = card.classList.contains('open') ? '▴ Hide' : '✓ View'; return; }
+  // The re-analyze "↻" button is a separate element from the row's View button — it always
+  // fetches fresh (its own data-force="1") and never toggles collapse/expand the way View does,
+  // it only ever re-renders the details panel in place. The actual "loaded/open" bookkeeping
+  // still belongs to the View button (found by row key, since a re-analyze click comes from a
+  // different <button>), so success below updates that one too and a later View click reads
+  // correctly.
+  const isReanalyze = btn.classList.contains('icon-btn');
+  if (!isReanalyze && btn.dataset.loaded) { card.classList.toggle('open'); btn.textContent = card.classList.contains('open') ? '▴ Hide' : '✓ View'; return; }
   // The row's own account (set at render time), not CTX — CTX may have moved on since these
   // rows were rendered (a failed later search leaves stale rows on screen without touching CTX).
   const rid = btn.dataset.rid || CTX.riotId;
   const force = btn.dataset.force === '1' ? '&force=1' : '';
+  const viewBtn = isReanalyze ? document.getElementById('v' + i) : btn;
+  const prevIcon = isReanalyze ? btn.innerHTML : null;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
+  if (isReanalyze && viewBtn) viewBtn.disabled = true;
   beginBusy();
   let sentKey = false;
   try {
@@ -397,18 +415,22 @@ async function analyze(matchId, btn, i, attempt = 0) {
     if (!r.ok) throw new Error(data.error || r.status);
     const g = data.entry;
     syncLastSearchAnalyzed(rid, matchId, g);
+    // Replace the details panel unconditionally — even if it was already open from a previous
+    // View, a re-analyze must overwrite the stale content with the fresh entry, not skip it.
     document.getElementById('d' + i).innerHTML = detailsHTML(g, i, rid);
     const badgeEl = document.getElementById('b' + i);
     if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking); badgeEl.textContent = verdictLabel(g.matchmaking); }
     const oneEl = document.getElementById('o' + i);
     if (oneEl) { oneEl.textContent = g.oneLiner || ''; oneEl.title = g.oneLiner || ''; }
-    btn.dataset.loaded = '1'; btn.textContent = '▴ Hide'; btn.disabled = false;
+    if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
     card.classList.add('open');
     $('#status').textContent = '';
   } catch (err) {
     if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message);
-    btn.textContent = 'Analyze'; btn.disabled = false;
+    if (!isReanalyze) { btn.textContent = 'Analyze'; btn.disabled = false; }
+    else if (viewBtn) viewBtn.disabled = false;
   } finally {
+    if (isReanalyze) { btn.innerHTML = prevIcon; btn.disabled = false; }
     endBusy();
   }
 }
