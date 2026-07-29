@@ -59,6 +59,7 @@ td.you + td.you { border-left:none !important; }
 .chip.flag-tilt { color:var(--mid); border-color:var(--mid); }
 .chip.flag-smurf { color:var(--bad); border-color:var(--bad); font-weight:800; }
 .chip.flag-afk { color:var(--bad); border-color:var(--bad); }
+.chip.flag-countered { color:var(--bad); border-color:var(--bad); }
 .matchup td { white-space:normal; }
 #bmStar { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:#f2c34c; font-size:17px; padding:2px 4px; line-height:1; }
 #bmStar.starred { background:none; }

@@ -1,4 +1,5 @@
 import './style.css';
+import { counterPenalty } from '../lib/counters.mjs';
 
 // Same-origin API in production (Vercel functions); Vite proxies /api in dev.
 const API = import.meta.env.VITE_API_URL || '';
@@ -454,13 +455,17 @@ function enrichDuos(g) {
 
 // Shared compact chip group for a player's flags/duo/streak/cspm — used identically in the
 // summary matchup table and the per-team details tables so both views render the same way.
-function chipsHTML(p) {
+// oppChamp (matchup view only — the details tables don't pair opposing lanes, so they call this
+// without it and simply never show the countered chip there) drives the one chip that needs
+// opponent context: a known lane counter against them (see lib/counters.mjs).
+function chipsHTML(p, oppChamp) {
   if (!p) return '';
   const c = [];
   if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role']);
   if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion']);
   if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
   if (p.flags?.includes('otp-denied')) c.push(['OTP denied', `One-trick on ${p.deniedChamp} but not playing it this game`, 'flag-otp-denied']);
+  if (oppChamp && counterPenalty(p.champ, oppChamp) > 0) c.push(['countered', `${p.champ} is countered by ${oppChamp}`, 'flag-countered']);
   // Session-history warning flags — computed from the player's prior games / league entry,
   // shown compactly; each is rare enough that a plain chip (no icon) reads fine.
   if (p.flags?.includes('tilt')) c.push(['tilt?', '3+ games in the last ~3h with at least 2 losses — possible session tilt', 'flag-tilt']);
@@ -535,14 +540,14 @@ function matchupHTML(g, rid) {
   // mirroring, so there's no need to special-case the DOM order per side anymore. Lane-favor
   // severity (favored/heavily favored) is NOT shown here — it's the Favored-column value's own
   // tooltip below (laneVerdict), so it isn't duplicated per player.
-  const cellName = p => {
+  const cellName = (p, oppChamp) => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
     const name = `<span class="pname">${esc(p.n)}</span>`;
     const kda = p.kda ? `<span class="dim">${esc(p.kda)}</span>` : '';
     const ga = `<b>GA ${p.ga ?? '–'}</b>`;
     const main = [place, name, kda, ga].filter(Boolean).join(' ');
-    const chips = badgeHTML(p) + chipsHTML(p);
+    const chips = badgeHTML(p) + chipsHTML(p, oppChamp);
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
   // Verdict "category" (EVEN / BLUE-favored / RED-favored) for a pair of GA values, using the
@@ -557,16 +562,29 @@ function matchupHTML(g, rid) {
     const b = by('blue', role), r = by('red', role);
     if (!b && !r) return '';
     const bRisk = riskOf(b), rRisk = riskOf(r);
-    const bAdj = b?.ga != null ? b.ga - bRisk : null;
-    const rAdj = r?.ga != null ? r.ga - rRisk : null;
+    const bRiskAdj = b?.ga != null ? b.ga - bRisk : null;
+    const rRiskAdj = r?.ga != null ? r.ga - rRisk : null;
+    // Known lane counters (lib/counters.mjs, shared with the engine's fairness() lane rules) are
+    // subtracted the same way as autofill/first-time risk — a countered lane never reads EVEN
+    // just because the raw GAs happened to be close.
+    const bCounter = (b && r) ? counterPenalty(b.champ, r.champ) : 0;
+    const rCounter = (b && r) ? counterPenalty(r.champ, b.champ) : 0;
+    const bAdj = bRiskAdj != null ? bRiskAdj - bCounter : null;
+    const rAdj = rRiskAdj != null ? rRiskAdj - rCounter : null;
     // Note the adjustment in the tooltip only when it actually changed how the lane reads (raw
     // vs adjusted verdict category differ) — otherwise a flagged player with a lane that was
-    // never close is left alone rather than adding noise to every row.
-    let riskNote = null;
-    if ((bRisk > 0 || rRisk > 0) && verdictCat(b?.ga, r?.ga) !== verdictCat(bAdj, rAdj)) {
+    // never close is left alone rather than adding noise to every row. Risk and counter notes
+    // are checked (and worded) independently since they're different phenomena.
+    const notes = [];
+    if ((bRisk > 0 || rRisk > 0) && verdictCat(b?.ga, r?.ga) !== verdictCat(bRiskAdj, rRiskAdj)) {
       const who = [bRisk > 0 && 'blue', rRisk > 0 && 'red'].filter(Boolean).join(' & ');
-      riskNote = `includes autofill/first-time risk on the ${who} player${who.includes('&') ? 's' : ''}`;
+      notes.push(`includes autofill/first-time risk on the ${who} player${who.includes('&') ? 's' : ''}`);
     }
+    if ((bCounter > 0 || rCounter > 0) && verdictCat(bRiskAdj, rRiskAdj) !== verdictCat(bAdj, rAdj)) {
+      if (bCounter > 0) notes.push(`${b.champ} is countered by ${r.champ}`);
+      if (rCounter > 0) notes.push(`${r.champ} is countered by ${b.champ}`);
+    }
+    const riskNote = notes.length ? notes.join('; ') : null;
     const fav = laneFavor(bAdj, rAdj);
     const rowCls = (base, p, side) => {
       const c = base ? [base] : [];
@@ -579,7 +597,7 @@ function matchupHTML(g, rid) {
       if (!p) return '<span class="dim">—</span>';
       return `<span class="champ">${esc(p.champ)}</span>`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
