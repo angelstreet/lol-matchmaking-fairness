@@ -416,15 +416,6 @@ async function analyze(matchId, btn, i, attempt = 0) {
 const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
 const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge}</span>` : '';
 
-// Maps each player name to which duo pair they belong to (0-based index into g.duos, in the
-// order the backend found them), so a game with multiple duos can label them D1 / D2 instead
-// of an ambiguous plain "DUO" chip on every pair.
-function duoPairIndex(duos) {
-  const m = {};
-  (duos || []).forEach(([a, b], idx) => { if (!(a in m)) m[a] = idx; if (!(b in m)) m[b] = idx; });
-  return m;
-}
-
 // Legacy cached entries may predate the duoWith/duoShared fields (or even the duo flag) on
 // player objects, since those were added after duo detection itself. g.duos is always present
 // though, so backfill from it — mutates g.players in place and is safe to call on every render.
@@ -441,9 +432,7 @@ function enrichDuos(g) {
 
 // Shared compact chip group for a player's flags/duo/streak/cspm — used identically in the
 // summary matchup table and the per-team details tables so both views render the same way.
-// duoCtx = { count, idx } — how many duo pairs exist in this game, and which one this player
-// is in — computed once per game by the caller via duoPairIndex().
-function chipsHTML(p, duoCtx) {
+function chipsHTML(p) {
   if (!p) return '';
   const c = [];
   if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role']);
@@ -456,11 +445,10 @@ function chipsHTML(p, duoCtx) {
   if (p.flags?.includes('smurf')) c.push(['SMURF?', 'Low account level with a strong season winrate or recent KDA — likely outclasses their displayed rank', 'flag-smurf']);
   if (p.flags?.includes('afk-risk')) c.push(['AFK risk', 'A recent game ended in an early surrender for this player — possible AFK/DC pattern', 'flag-afk']);
   if (p.duo) {
-    const label = duoCtx && duoCtx.count > 1 && duoCtx.idx != null ? `D${duoCtx.idx + 1}` : 'DUO';
     const tip = p.duoWith
       ? `Duo with ${p.duoWith} — ${p.duoRecord ? p.duoRecord + ' together in their last 5 shared games' : (p.duoShared != null ? p.duoShared + '/5 previous games together' : 'proven by shared pre-game matches')}`
       : 'Queued with a teammate — proven by shared pre-game matches';
-    c.push([label, tip]);
+    c.push(['DUO', tip]);
   }
   if (p.streak) {
     const n = parseInt(p.streak), w = p.streak.endsWith('W');
@@ -483,20 +471,31 @@ function chipsHTML(p, duoCtx) {
   return c.map(([l, t, cls]) => `<span class="chip${cls ? ' ' + cls : ''}" title="${esc(t)}">${l}</span>`).join('');
 }
 
-function laneVerdict(a, b) {
+// Off-role (autofill) and unfamiliar-champion (first-time) picks are risk, not skill — mirrors
+// riskOf in lib/riot.mjs so a lane with an autofilled/first-timing player never reads EVEN
+// against a clean opponent just because the raw GAs happened to land close together.
+const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 5 : 0);
+
+// a and b are risk-adjusted GAs (see riskOf above) — callers no longer pass raw p.ga
+// directly, so a lane where one side is autofilled/first-timing never reads EVEN just because
+// the raw GAs happened to be close. riskNote, when given, is appended to the tooltip so the
+// adjustment is explained rather than silently changing the number.
+function laneVerdict(a, b, riskNote) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
-  if (ad <= 8) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points">EVEN</span>`;
+  const note = riskNote ? ` (${riskNote})` : '';
+  if (ad <= 8) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points${note}">EVEN</span>`;
   const heavy = ad > 18;
   const strength = heavy ? 'HEAVILY favored' : 'favored';
   const side = d > 0 ? 'blue' : 'red', sideLabel = side === 'blue' ? 'Blue' : 'Red';
-  return `<span class="lv-${side}" title="${sideLabel} side ${strength}: +${ad} GA advantage before the game started">${side.toUpperCase()} +${ad}</span>`;
+  return `<span class="lv-${side}" title="${sideLabel} side ${strength}: +${ad} GA advantage before the game started${note}">${side.toUpperCase()} +${ad}</span>`;
 }
 
 // Which side (if any) a lane is favored toward, for tinting that side's cells — kept separate
 // from laneVerdict's HTML/text so the middle "Favored" column only ever shows the centered
 // EVEN/BLUE +n/RED +n text. The favored/heavily-favored severity itself is no longer shown as
 // a chip on the player — it's explained by the Favored-column value's own tooltip instead.
+// Takes the same risk-adjusted values as laneVerdict so the tinting always agrees with the text.
 function laneFavor(a, b) {
   if (a == null || b == null) return null;
   const d = a - b, ad = Math.abs(d);
@@ -507,7 +506,6 @@ function laneFavor(a, b) {
 function matchupHTML(g, rid) {
   const meName = (rid || CTX.riotId).replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
-  const duoCtxBase = { count: (g.duos || []).length, idxMap: duoPairIndex(g.duos) };
   // Two lines per player: line one is #place + name + this game's KDA + bold GA; line two is
   // every chip (MVP/ACE leading, then flags/duo/streak/cs). Same element order on both sides —
   // the red column's .rgt text-align (and .p-chips' justify-content override) handles the
@@ -521,13 +519,32 @@ function matchupHTML(g, rid) {
     const kda = p.kda ? `<span class="dim">${esc(p.kda)}</span>` : '';
     const ga = `<b>GA ${p.ga ?? '–'}</b>`;
     const main = [place, name, kda, ga].filter(Boolean).join(' ');
-    const chips = badgeHTML(p) + chipsHTML(p, { count: duoCtxBase.count, idx: duoCtxBase.idxMap[p.n] });
+    const chips = badgeHTML(p) + chipsHTML(p);
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
+  };
+  // Verdict "category" (EVEN / BLUE-favored / RED-favored) for a pair of GA values, using the
+  // same EVEN threshold as laneVerdict — used below to detect when risk-adjustment flips or
+  // changes a lane's read compared to the raw (un-adjusted) GAs, so the tooltip can call it out.
+  const verdictCat = (a, b) => {
+    if (a == null || b == null) return null;
+    const d = a - b;
+    return Math.abs(d) <= 8 ? 'EVEN' : (d > 0 ? 'BLUE' : 'RED');
   };
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
     if (!b && !r) return '';
-    const fav = laneFavor(b?.ga, r?.ga);
+    const bRisk = riskOf(b), rRisk = riskOf(r);
+    const bAdj = b?.ga != null ? b.ga - bRisk : null;
+    const rAdj = r?.ga != null ? r.ga - rRisk : null;
+    // Note the adjustment in the tooltip only when it actually changed how the lane reads (raw
+    // vs adjusted verdict category differ) — otherwise a flagged player with a lane that was
+    // never close is left alone rather than adding noise to every row.
+    let riskNote = null;
+    if ((bRisk > 0 || rRisk > 0) && verdictCat(b?.ga, r?.ga) !== verdictCat(bAdj, rAdj)) {
+      const who = [bRisk > 0 && 'blue', rRisk > 0 && 'red'].filter(Boolean).join(' & ');
+      riskNote = `includes autofill/first-time risk on the ${who} player${who.includes('&') ? 's' : ''}`;
+    }
+    const fav = laneFavor(bAdj, rAdj);
     const rowCls = (base, p, side) => {
       const c = base ? [base] : [];
       if (fav) { if (fav.side === side) c.push(`fav-${side}`); }
@@ -539,7 +556,7 @@ function matchupHTML(g, rid) {
       if (!p) return '<span class="dim">—</span>';
       return `<span class="champ">${esc(p.champ)}</span>`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b)}</td><td class="mid-v">${laneVerdict(b?.ga, r?.ga)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
@@ -562,7 +579,6 @@ const detailsColgroup = '<colgroup>' + DETAILS_COLS.map(w => `<col style="width:
 function detailsHTML(g, key = 'x', rid) {
   enrichDuos(g);
   const meName = (rid || CTX.riotId).replace('#', '-').toLowerCase();
-  const duoCtxBase = { count: (g.duos || []).length, idxMap: duoPairIndex(g.duos) };
   const teams = ['blue', 'red'].map(t => {
     const rows = (g.players || []).filter(p => p.team === t);
     if (!rows.length) return '';
@@ -574,7 +590,7 @@ function detailsHTML(g, key = 'x', rid) {
         const isMe = p.n.replace('#', '-').toLowerCase() === meName;
         const gaCls = p.ga == null ? '' : p.ga >= 70 ? 'ga-hi' : p.ga <= 45 ? 'ga-lo' : '';
         const badge = badgeHTML(p);
-        const chips = chipsHTML(p, { count: duoCtxBase.count, idx: duoCtxBase.idxMap[p.n] });
+        const chips = chipsHTML(p);
         // MVP/ACE and the flag/duo/streak/cspm chips all live in the Player cell's chip group —
         // keeping the other columns plain text is what makes the fixed-width alignment hold up.
         const nameCell = `<span class="pcell"><span class="pname">${esc(p.n)}</span>${badge}${chips}</span>`;
