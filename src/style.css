@@ -55,6 +55,7 @@ td.you + td.you { border-left:none !important; }
 .chip.cs-low { color:var(--bad); border-color:var(--bad); }
 .chip.wr-hi { color:var(--ok); border-color:var(--ok); }
 .chip.wr-lo { color:var(--bad); border-color:var(--bad); }
+.chip.flag-otp-denied { color:var(--mid); border-color:var(--mid); }
 .chip.flag-tilt { color:var(--mid); border-color:var(--mid); }
 .chip.flag-smurf { color:var(--bad); border-color:var(--bad); font-weight:800; }
 .chip.flag-afk { color:var(--bad); border-color:var(--bad); }

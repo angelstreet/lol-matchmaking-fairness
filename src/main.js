@@ -460,6 +460,7 @@ function chipsHTML(p) {
   if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role']);
   if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion']);
   if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
+  if (p.flags?.includes('otp-denied')) c.push(['OTP denied', `One-trick on ${p.deniedChamp} but not playing it this game`, 'flag-otp-denied']);
   // Session-history warning flags — computed from the player's prior games / league entry,
   // shown compactly; each is rare enough that a plain chip (no icon) reads fine.
   if (p.flags?.includes('tilt')) c.push(['tilt?', '3+ games in the last ~3h with at least 2 losses — possible session tilt', 'flag-tilt']);
