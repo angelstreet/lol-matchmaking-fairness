@@ -475,8 +475,16 @@ function renderRows(games, container, prefix, rid) {
     const key = prefix + i;
     const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking, g.direction)}" id="b${key}" title="${esc(verdictTitle(g.matchmaking, g.direction))}">${verdictLabel(g.matchmaking, g.direction)}</span>` : `<span id="b${key}"></span>`;
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
-    const isLive = g.live || g.result === 'Live';
-    const resultEl = isLive ? '<span class="badge b-live">LIVE</span>' : `<span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>`;
+    // A live-snapshot entry (g.live — only ever set on rows coming through /api/history; the
+    // search-list path via /api/matches never marks a cached row live, it falls through to the
+    // uncached/wasLive branch instead) is still pre-game, not a finished game with an unknown-yet
+    // result — "there is no live in history, a game is a game". So no LIVE badge here (that's
+    // reserved for the actual current in-progress card, renderLive, untouched by any of this) —
+    // just a dim placeholder where the result would go, and no fake "0m (in progress)" duration.
+    const resultEl = g.live
+      ? '<span class="dim">—</span>'
+      : (g.result === 'Live' ? '<span class="badge b-live">LIVE</span>' : `<span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>`);
+    const dateHTML = g.live ? esc(relativeDate(g.when)) : `${esc(shortDuration(g.duration))} · ${esc(relativeDate(g.when))}`;
     // Result/champ/KDA/badge/date are fixed-width columns (see .col-* in style.css) so every
     // row lines up vertically and none of them ever wraps internally — only the one-liner
     // flexes/truncates. .col-badge is deliberately wider than the badge itself (150px) to leave
@@ -487,11 +495,14 @@ function renderRows(games, container, prefix, rid) {
     // data-force marks rows that came back as a live-only snapshot (g.wasLive from /api/matches)
     // — their "Analyze" click must force a fresh deep analysis rather than re-serving the snapshot.
     // Cached rows additionally get a small "↻" re-analyze button next to View, so an already
-    // -analyzed game can be re-judged with whatever the scoring engine looks like today. It
-    // carries its own data-force="1" (independent of data-wasLive), and shares the row's key so
-    // analyze() can look up the View button (id v${key}) and keep the two in sync.
+    // -analyzed game can be re-judged with whatever the scoring engine looks like today (or, for
+    // a still-live history row, upgraded to its final analysis — same amber wasLive-ready
+    // highlight either way). It carries its own data-force="1" (independent of data-wasLive), and
+    // shares the row's key so analyze() can look up the View button (id v${key}) and keep the
+    // two in sync. Re-analyzing a live row calls the same putAnalysis PK, so it overwrites this
+    // row in place — no duplicate entry, it just becomes a normal final row next render.
     const reanalyzeBtn = g.cached
-      ? `<button class="mini icon-btn" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="Re-analyze with the latest scoring (needs a key or a free slot)">↻</button>`
+      ? `<button class="mini icon-btn${g.live ? ' wasLive-ready' : ''}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="${g.live ? 'Game finished? Get the final analysis' : 'Re-analyze with the latest scoring (needs a key or a free slot)'}">↻</button>`
       : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
@@ -499,7 +510,7 @@ function renderRows(games, container, prefix, rid) {
         <span class="col-champ" title="${esc(g.champ)}">${esc(g.champ)}</span>
         <span class="col-kda">${esc(g.kda)}</span>
         <span class="col-badge">${badge}</span>
-        <span class="col-date dim" title="${esc(absoluteDate(g.when))}">${esc(shortDuration(g.duration))} · ${esc(relativeDate(g.when))}</span>
+        <span class="col-date dim" title="${esc(absoluteDate(g.when))}">${dateHTML}</span>
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
         <button class="mini${g.wasLive ? ' wasLive-ready' : ''}" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1" title="Your live-reviewed game just ended — click for the final analysis"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
         ${reanalyzeBtn}
