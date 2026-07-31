@@ -357,22 +357,31 @@ async function checkLive(riotId, region, attempt = 0) {
   }
 }
 
+// Compact single-row live header: a player mid-loading-screen wants LIVE status, champ, time,
+// the lane recommendation and the fairness note at a glance — not a two-row banner. reco is
+// built from reco.lane/reco.delta directly (not reco.text, which is the old wordier "your bot
+// lane is +19 GA ahead" sentence used elsewhere) so it can be kept to "PLAY FOR BOT +19 GA".
+function liveRecoHTML(reco) {
+  if (!reco) return '';
+  if (reco.delta > 0) return `<b class="reco-inline">PLAY FOR ${esc(reco.lane)} +${reco.delta} GA</b>`;
+  return `<span class="reco-inline dim">No favored lane · best ${esc(reco.lane)} (${reco.delta})</span>`;
+}
+
 function renderLive(g) {
   document.getElementById('liveCard')?.remove();
   const mins = Math.max(0, Math.round((Date.now() - new Date(g.when).getTime()) / 60000));
   const card = document.createElement('div');
   card.className = 'gcard open';
   card.id = 'liveCard';
-  const reco = g.recommendation;
-  const [recoHead, recoDetail] = reco ? reco.text.split(' — ') : [];
-  const recoHTML = reco
-    ? `<div class="reco"${reco.delta <= 0 ? ' style="color:var(--mid)"' : ''}>🎯 ${esc(recoHead)}${recoDetail ? ` <span class="dim">— ${esc(recoDetail)}</span>` : ''}</div>`
-    : '';
   card.innerHTML = `
-    ${recoHTML}
     <div class="row">
-      <span class="badge b-live">LIVE</span>
-      <span>LIVE — ${esc(g.user?.champ || '')} · started ${mins} min ago</span>
+      <span class="live-head">
+        <span class="badge b-live">LIVE</span>
+        <span>${esc(g.user?.champ || '')}</span>
+        <span class="dim">· ${mins} min</span>
+        ${g.recommendation ? '<span class="dim">—</span>' : ''}
+        ${liveRecoHTML(g.recommendation)}
+      </span>
       <span class="one-h" title="${esc(g.oneLiner || '')}">${esc(g.oneLiner || '')}</span>
     </div>
     <div class="details">

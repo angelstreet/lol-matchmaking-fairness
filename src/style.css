@@ -182,7 +182,14 @@ h4 { margin:10px 0 2px; }
 .foot { margin-top:40px; padding:16px 0; border-top:1px solid var(--line); font-size:12px; text-align:center; }
 .foot a { color:var(--ok); text-decoration:none; font-weight:700; }
 .foot a:hover { text-decoration:underline; }
-.reco { font-size:18px; font-weight:800; color:var(--ok); padding:10px 0; }
+/* Live card header: one compact row (badge, champ, elapsed time, lane recommendation, fairness
+   note) instead of the old two-row banner-plus-line layout — a player mid-loading-screen wants
+   this at a glance. .live-head groups everything except the trailing .one-h fairness note so
+   mobile can force exactly that one wrap point (see the ≤640px block) instead of leaving it to
+   flex-wrap's item-by-item flow, which could otherwise split the group unpredictably. */
+.live-head { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; white-space:nowrap; }
+.reco-inline { font-weight:800; color:var(--ok); white-space:nowrap; }
+.reco-inline.dim { font-weight:600; color:var(--mid); }
 @keyframes r { to { transform:rotate(360deg);} }
 
 /* ==== Mobile (phones, ≤640px) — CSS-only, no markup changes ==== */
@@ -262,4 +269,10 @@ h4 { margin:10px 0 2px; }
      are all single unspaced tokens) but overflow/ellipsis is no longer needed since nothing is
      being force-fit into a fixed box. */
   .col-res, .col-champ, .col-kda, .col-badge, .col-date { width:auto; overflow:visible; }
+
+  /* Live card header: force exactly the intended 2-line split (badge+champ+time+recommendation
+     on line 1, the dim fairness note on line 2) instead of leaving flex-wrap to break wherever it
+     runs out of room mid-group. flex:1 1 100% makes .live-head claim the whole row width for
+     itself, which pushes .one-h (the only other flex child) onto its own line every time. */
+  .live-head { flex: 1 1 100%; }
 }
