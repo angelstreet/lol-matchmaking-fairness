@@ -270,6 +270,49 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
     .catch(() => {}); // silent — keep the cached view as-is
 })();
 
+// After a live analysis (see checkLive's liveWatch marker below), the finished game should
+// surface at the top of the last-games list on its own — Riot's match-v5 indexing lags ~1-2min
+// behind the actual game end, so even right when the user is back it may not show up yet. Poll
+// for it a few times instead of requiring a manual re-search, bypassing restoreLastSearch's own
+// 60s-freshness guard above since this is a distinct, deliberate refresh. Triggered on page load
+// and whenever the tab regains focus; liveWatchActive stops repeated focus events from stacking
+// multiple retry chains on top of each other.
+let liveWatchActive = false;
+const LIVE_WATCH_MAX_AGE = 6 * 60 * 60 * 1000; // stale after 6h — give up and let it be cleared
+const LIVE_WATCH_MAX_TRIES = 5;
+async function pollLiveWatch(attempt = 0) {
+  let marker;
+  try { marker = JSON.parse(localStorage.getItem('liveWatch') || 'null'); } catch { marker = null; }
+  if (!marker || !marker.matchId || !marker.riotId) { liveWatchActive = false; return; }
+  if (Date.now() - (marker.ts || 0) > LIVE_WATCH_MAX_AGE) { localStorage.removeItem('liveWatch'); liveWatchActive = false; return; }
+  liveWatchActive = true;
+  try {
+    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(marker.riotId)}&games=${$('#games').value}&region=${marker.region}`, { headers: hdrs() });
+    if (r.ok) {
+      const data = await r.json();
+      CTX = { riotId: marker.riotId, region: marker.region };
+      $('#riotId').value = marker.riotId;
+      $('#region').value = marker.region;
+      updateStar();
+      renderRows(data.games, $('#list'), 'm', marker.riotId);
+      localStorage.setItem('lastSearch', JSON.stringify({ riotId: marker.riotId, region: marker.region, games: data.games, ts: Date.now() }));
+      if (data.games.some(g => g.matchId === marker.matchId)) {
+        // Found it — it's already rendered with wasLive -> data-force + the amber-highlighted
+        // Analyze button (see renderRows), no auto-analyze here since that could burn the user's
+        // key/quota without them asking. Just stop watching.
+        localStorage.removeItem('liveWatch');
+        liveWatchActive = false;
+        return;
+      }
+    }
+  } catch {} // quiet — this is a background convenience poll, never surface an error for it
+  if (attempt < LIVE_WATCH_MAX_TRIES - 1) setTimeout(() => pollLiveWatch(attempt + 1), 60000);
+  else liveWatchActive = false; // exhausted retries this session — marker stays for next load/focus
+}
+function triggerLiveWatch() { if (!liveWatchActive) pollLiveWatch(0); }
+triggerLiveWatch();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') triggerLiveWatch(); });
+
 // ---- optional Clerk sign-in: accounts, cross-device bookmarks, per-user quota ----
 const CLERK_PK = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 if (CLERK_PK) {
@@ -363,6 +406,11 @@ async function checkLive(riotId, region, attempt = 0) {
       syncLastSearchAnalyzed(riotId, data.entry.matchId, data.entry);
       renderLive(data.entry);
       $('#status').textContent = '';
+      // Remember this game so that once it ends (Riot's match-v5 indexing lags 1-2min behind
+      // the actual game end), the next time the user opens or refocuses the app, their finished
+      // live-reviewed game surfaces at the top of the last-games list on its own — see
+      // pollLiveWatch below — instead of requiring a manual re-search.
+      try { localStorage.setItem('liveWatch', JSON.stringify({ matchId: data.entry.matchId, riotId, region, ts: Date.now() })); } catch {}
     }
   } catch (err) {
     if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message);
@@ -453,7 +501,7 @@ function renderRows(games, container, prefix, rid) {
         <span class="col-badge">${badge}</span>
         <span class="col-date dim" title="${esc(absoluteDate(g.when))}">${esc(shortDuration(g.duration))} · ${esc(relativeDate(g.when))}</span>
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
-        <button class="mini" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
+        <button class="mini${g.wasLive ? ' wasLive-ready' : ''}" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1" title="Your live-reviewed game just ended — click for the final analysis"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
         ${reanalyzeBtn}
       </div>
       <div class="details" id="d${key}"></div>

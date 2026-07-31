@@ -176,6 +176,10 @@ td.you + td.you { border-left:none !important; }
    wrap or shrink away on desktop's single-line row (the one-liner is what gives up space). */
 .row .dim { white-space:nowrap; flex-shrink:0; }
 .mini { margin-left:auto; padding:6px 14px; font-size:13px; flex-shrink:0; }
+/* A wasLive row (came back as a live-only snapshot, no final analysis yet — see matches.mjs's
+   wasLive flag) gets a subtle amber outline on its Analyze button: "your live-reviewed game is
+   ready for its final analysis". outline (not border) so it doesn't shift the button's box size. */
+.mini.wasLive-ready { outline: 2px solid var(--mid); outline-offset: 1px; }
 /* Re-analyze icon button sits right after .mini's View button — it shouldn't also claim the
    margin-left:auto that pushes .mini to the row's right edge (that job stays with View). */
 .icon-btn { min-width:0; padding:6px 10px; margin-left:6px; font-size:14px; flex-shrink:0; }
