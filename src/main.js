@@ -5,8 +5,8 @@ import { counterPenalty } from '../lib/counters.mjs';
 const API = import.meta.env.VITE_API_URL || '';
 
 document.querySelector('#app').innerHTML = `
-  <h1>LoL <span>Matchmaking Fairness</span> <span id="clerkBtn"></span></h1>
-  <div class="sub"><span class="sub-short">Was your game winnable? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span> <a href="/scoring.html" class="algo-link">ⓘ How we score</a></div>
+  <h1>LoL <span>Matchmaking Fairness</span> <span class="h1-right"><a href="/scoring.html" class="algo-link">ⓘ <span class="algo-full">How we score</span><span class="algo-short">Scoring</span></a><span id="clerkBtn"></span></span></h1>
+  <div class="sub"><span class="sub-short">Was your game winnable? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span></div>
   <form id="f" autocomplete="off">
     <div class="combo">
       <input id="riotId" name="riot-search" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">

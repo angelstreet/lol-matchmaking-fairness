@@ -3,11 +3,22 @@
 * { box-sizing:border-box; margin:0; }
 body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; max-width:980px; margin:auto; }
 h1 { font-size:22px; margin-bottom:4px; } h1 span { color:var(--ok); }
+/* Right-aligned cluster in the header: the /scoring.html link immediately left of the profile
+   button (#clerkBtn, populated by Clerk once it loads — mounted user button or a "Sign in"
+   button). float:right (desktop) / margin-left:auto in a flex row (mobile, see the ≤640px block)
+   mirrors the positioning trick #clerkBtn used on its own before this link joined it. */
+.h1-right { float:right; display:inline-flex; align-items:center; gap:12px; }
+#clerkBtn { font-size:14px; }
+/* Link to /scoring.html (the "how we score" static explainer page) — also repeated in the
+   footer. Deliberately unobtrusive (dim, no underline) until hovered; small enough not to compete
+   with the h1 title. `h1 span { color:var(--ok) }` above would otherwise force .algo-short/-full
+   green at all times (it targets any span inside h1) — the extra `span` selectors here win on
+   specificity and keep the link dim except on hover. .algo-short (a shorter "Scoring" label) only
+   shows on mobile, see the ≤640px block. */
+.algo-link, .algo-link span { color:var(--dim); text-decoration:none; font-size:13px; }
+.algo-link:hover, .algo-link:hover span { color:var(--ok); }
+.algo-short { display:none; }
 .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
-/* Link to /scoring.html (the "how we score" static explainer page) — shown next to the subtitle
-   and again in the footer. Deliberately unobtrusive (dim, no underline) until hovered. */
-.algo-link { color:var(--dim); text-decoration:none; }
-.algo-link:hover { color:var(--ok); }
 form { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 input, select { background:var(--card); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:10px 12px; font-size:15px; }
 .combo { position:relative; flex:1; min-width:220px; display:flex; }
@@ -79,7 +90,6 @@ td.you + td.you { border-left:none !important; }
 .bmItem { padding:8px 12px; cursor:pointer; }
 .bmItem:hover { background:#20242d; }
 .bmItem .dim { font-size:12px; }
-#clerkBtn { float:right; font-size:14px; }
 .ga-hi { color:var(--ok); font-weight:700; } .ga-lo { color:var(--bad); font-weight:700; }
 #status { color:var(--dim); margin:20px 0; }
 /* Desktop: strictly one line — result/champ/badge/buttons must always stay visible and never
@@ -168,9 +178,15 @@ h4 { margin:10px 0 2px; }
 @media (max-width: 640px) {
   body { padding:12px; }
 
-  /* header: keep the title from wrapping awkwardly against the Sign in button */
+  /* header: keep the title from wrapping awkwardly against the scoring link + Sign in button.
+     h1 becomes a flex row, so .h1-right's float is ineffective anyway — margin-left:auto pushes
+     it to the end of the row instead, wrapping onto its own line if there's no room left (same
+     trick #clerkBtn used alone before the scoring link joined it). The scoring link itself
+     shrinks to "Scoring" here — "How we score" is too wide next to the title + profile button. */
   h1 { font-size:19px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
-  #clerkBtn { float:none; margin-left:auto; }
+  .h1-right { float:none; margin-left:auto; }
+  .algo-full { display:none; }
+  .algo-short { display:inline; }
 
   /* copy reduction: mobile keeps only the essential fragment of each — see the .sub-short/
      .sub-more and .note-more split in src/main.js for what's hidden here (the "No key?" note
