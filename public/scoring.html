@@ -10,7 +10,7 @@
   * { box-sizing:border-box; margin:0; }
   body { background:var(--bg); color:var(--txt); font:14px/1.4 system-ui, sans-serif; padding:18px; max-width:760px; margin:auto; }
   a { color:var(--ok); }
-  .back { display:inline-block; color:var(--dim); text-decoration:none; font-size:12px; margin-bottom:10px; }
+  .back { display:inline-block; color:var(--dim); text-decoration:none; font-size:20px; line-height:1; padding:6px 8px; margin:-6px 0 4px -8px; border-radius:6px; }
   .back:hover { color:var(--ok); }
   h1 { font-size:20px; margin-bottom:2px; display:inline-block; }
   h1 span { color:var(--ok); }
@@ -36,7 +36,7 @@
 </style>
 </head>
 <body>
-  <a class="back" href="/">← Back to the app</a>
+  <a class="back" href="/" title="Back to the app">←</a>
   <h1>How we <span>score</span></h1>
   <p class="ga-def">GA: 0–100 pre-game strength from ranked history — nothing from the game itself counts.</p>
 
