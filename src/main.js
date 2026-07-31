@@ -6,7 +6,7 @@ const API = import.meta.env.VITE_API_URL || '';
 
 document.querySelector('#app').innerHTML = `
   <h1>LoL <span>Matchmaking Fairness</span> <span id="clerkBtn"></span></h1>
-  <div class="sub"><span class="sub-short">Was your game winnable? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span></div>
+  <div class="sub"><span class="sub-short">Was your game winnable? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span> <a href="/scoring.html" class="algo-link">ⓘ How we score</a></div>
   <form id="f" autocomplete="off">
     <div class="combo">
       <input id="riotId" name="riot-search" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
@@ -41,7 +41,7 @@ document.querySelector('#app').innerHTML = `
     <div id="hist"></div>
     <div id="histNav" class="dim" style="display:flex;gap:12px;align-items:center"></div>
   </div>
-  <footer class="foot"><a href="https://github.com/angelstreet/lol-matchmaking-fairness" target="_blank" rel="noreferrer">⭐ Open source — star it on GitHub</a><span class="dim"> · MIT · not endorsed by Riot Games</span></footer>`;
+  <footer class="foot"><a href="https://github.com/angelstreet/lol-matchmaking-fairness" target="_blank" rel="noreferrer">⭐ Open source — star it on GitHub</a><span class="dim"> · MIT · not endorsed by Riot Games · </span><a href="/scoring.html" class="algo-link">ⓘ How we score</a></footer>`;
 
 const $ = s => document.querySelector(s);
 $('#apiKey').value = localStorage.getItem('rgapi') || '';

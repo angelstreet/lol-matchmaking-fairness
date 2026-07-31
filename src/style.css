@@ -4,6 +4,10 @@
 body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; max-width:980px; margin:auto; }
 h1 { font-size:22px; margin-bottom:4px; } h1 span { color:var(--ok); }
 .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
+/* Link to /scoring.html (the "how we score" static explainer page) — shown next to the subtitle
+   and again in the footer. Deliberately unobtrusive (dim, no underline) until hovered. */
+.algo-link { color:var(--dim); text-decoration:none; }
+.algo-link:hover { color:var(--ok); }
 form { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 input, select { background:var(--card); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:10px 12px; font-size:15px; }
 .combo { position:relative; flex:1; min-width:220px; display:flex; }
