@@ -77,6 +77,19 @@ td.you + td.you { border-left:none !important; }
    Mobile re-enables wrap (see the ≤640px block) since there's no room to keep it all on one line
    there and the stacked/wrapped layout is the intended compact mobile look. */
 .row { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-bottom:8px; flex-wrap:nowrap; }
+/* Fixed-width leading columns so every row's result/champ/KDA/badge/date line up vertically and
+   none of them ever wraps internally (the old plain `<span>champ kda</span>` would word-wrap mid
+   -content once the row got tight) — only .one-h is allowed to flex/shrink/truncate. Widths sized
+   to comfortably fit their content; .col-champ additionally ellipsizes since champion names vary
+   a lot in length (internal ids have no spaces, so nowrap is always safe, just sometimes long —
+   e.g. "Heimerdinger"). .col-badge is wider than the badge itself (150px) to leave room for a
+   possible favored/against indicator next to it later; it's simply empty for unanalyzed rows. */
+.col-res, .col-champ, .col-kda, .col-badge, .col-date { flex-shrink:0; white-space:nowrap; overflow:hidden; }
+.col-res { width:64px; }
+.col-champ { width:84px; text-overflow:ellipsis; }
+.col-kda { width:70px; }
+.col-badge { width:150px; }
+.col-date { width:96px; text-overflow:ellipsis; }
 .gcard { background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; }
 .gcard .row { background:none; border:0; border-radius:0; margin:0; }
 .gcard .details { display:none; border-top:1px solid var(--line); padding:12px 16px; overflow-x:auto; }
@@ -202,4 +215,10 @@ h4 { margin:10px 0 2px; }
   .row { padding:8px 12px; flex-wrap:wrap; }
   .one-h { max-width:46ch; flex:0 1 auto; }
   .row .dim { white-space:normal; flex-shrink:1; }
+  /* The fixed-width desktop columns (see the base .col-* rule) would either cramp or pointlessly
+     truncate content once the row wraps onto multiple lines here — auto-size to content instead,
+     same as everything else in the mobile layout. white-space:nowrap is still safe to keep (these
+     are all single unspaced tokens) but overflow/ellipsis is no longer needed since nothing is
+     being force-fit into a fixed box. */
+  .col-res, .col-champ, .col-kda, .col-badge, .col-date { width:auto; overflow:visible; }
 }

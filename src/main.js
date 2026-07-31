@@ -69,6 +69,26 @@ $('#clearKey').addEventListener('click', () => {
 });
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Game-row date/duration is squeezed into a fixed column (see .col-date), so it needs to be as
+// short as possible: duration drops the seconds ("38m 24s" -> "38m", "12m (in progress)"
+// unaffected since it has no seconds token to strip), and the date drops the year and seconds
+// ("29/07 18:06" instead of a full locale string) — full precision isn't needed for a list of
+// recent games, and the row already carries a full title tooltip on the one-liner if more detail
+// is ever wanted elsewhere.
+const shortDuration = d => {
+  if (!d) return '';
+  const m = /^(\d+)m/.exec(d);
+  if (!m) return d;
+  const rest = d.slice(m[0].length).trim().replace(/^\d+s\s*/, '');
+  return rest ? `${m[1]}m ${rest}` : `${m[1]}m`;
+};
+const shortDate = iso => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const two = n => String(n).padStart(2, '0');
+  return `${two(d.getDate())}/${two(d.getMonth() + 1)} ${two(d.getHours())}:${two(d.getMinutes())}`;
+};
 // Riot IDs are typed inconsistently ("Name #TAG" vs "Name#TAG") — normalize whitespace around
 // the '#' everywhere before it's used as a cache/history key, so both forms resolve the same entry.
 const normRiotId = s => String(s || '').trim().replace(/\s*#\s*/, '#');
@@ -348,13 +368,14 @@ function renderRows(games, container, prefix, rid) {
   container.innerHTML = games.map((g, i) => {
     if (g.remake) return ''; // server no longer sends remakes; guard is only for legacy lastSearch cache
     const key = prefix + i;
-    const when = g.when ? new Date(g.when).toLocaleString() : '';
     const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking)}" id="b${key}">${verdictLabel(g.matchmaking)}</span>` : `<span id="b${key}"></span>`;
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
     const isLive = g.live || g.result === 'Live';
     const resultEl = isLive ? '<span class="badge b-live">LIVE</span>' : `<span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>`;
-    // Result + champ/KDA + verdict badge come first (in that order) so they wrap as one group
-    // on narrow screens — the date/duration and one-liner are lower-priority and wrap below.
+    // Result/champ/KDA/badge/date are fixed-width columns (see .col-* in style.css) so every
+    // row lines up vertically and none of them ever wraps internally — only the one-liner
+    // flexes/truncates. .col-badge is deliberately wider than the badge itself (150px) to leave
+    // room for a possible favored/against indicator alongside it later; empty for unanalyzed rows.
     // Each row's button remembers the account it belongs to (data-rid) rather than relying on
     // whatever CTX happens to be at click time — CTX can drift (e.g. a failed later search that
     // leaves the previous rows on screen), but the row itself always knows its own account.
@@ -369,10 +390,11 @@ function renderRows(games, container, prefix, rid) {
       : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
-        ${resultEl}
-        <span>${esc(g.champ)} ${esc(g.kda)}</span>
-        ${badge}
-        <span class="dim">${esc(g.duration)} · ${when}</span>
+        <span class="col-res">${resultEl}</span>
+        <span class="col-champ" title="${esc(g.champ)}">${esc(g.champ)}</span>
+        <span class="col-kda">${esc(g.kda)}</span>
+        <span class="col-badge">${badge}</span>
+        <span class="col-date dim">${esc(shortDuration(g.duration))} · ${esc(shortDate(g.when))}</span>
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
         <button class="mini" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
         ${reanalyzeBtn}
