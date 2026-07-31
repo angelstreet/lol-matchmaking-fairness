@@ -137,8 +137,14 @@ function handleKeyError(err, sentKey) {
 // Verdict is binary (FAIR / NOT FAIR — echoing the app name). Legacy cached entries may still
 // carry the old 'OK' / 'NOT OK' / 'BORDERLINE' values — map those to the same two states.
 const isFairVerdict = v => v === 'OK' || v === 'FAIR';
-const verdictCls = v => isFairVerdict(v) ? 'b-ok' : 'b-bad';
-const verdictLabel = v => isFairVerdict(v) ? 'FAIR' : 'NOT FAIR';
+// NOT FAIR is further qualified by `direction` (lib/riot.mjs's fairness().direction, persisted on
+// the entry) — which team the imbalance actually favors, relative to the analyzed profile.
+// 'against' -> red "VS YOU", 'favor' -> amber "FOR YOU" (reusing the existing b-mid badge color),
+// 'mixed' or missing (older cached entries predate this field) -> plain red "NOT FAIR", same as
+// before this existed, so nothing breaks for old data — it just doesn't get the extra qualifier.
+const verdictCls = (v, dir) => isFairVerdict(v) ? 'b-ok' : dir === 'favor' ? 'b-mid' : 'b-bad';
+const verdictLabel = (v, dir) => isFairVerdict(v) ? 'FAIR' : dir === 'against' ? 'NOT FAIR · VS YOU' : dir === 'favor' ? 'NOT FAIR · FOR YOU' : 'NOT FAIR';
+const verdictTitle = (v, dir) => isFairVerdict(v) ? '' : dir === 'against' ? 'The lobby was stacked against your team' : dir === 'favor' ? "The lobby was stacked in your team's favor" : 'Imbalances on both sides';
 let CTX = { riotId: '', region: 'euw' };
 
 // ---- bookmarks: localStorage always; synced to the Clerk account when signed in ----
@@ -224,7 +230,7 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
   if (!cached || cached.riotId !== riotId || !Array.isArray(cached.games)) return;
   const idx = cached.games.findIndex(g => g.matchId === matchId);
   if (idx === -1) return;
-  cached.games[idx] = { ...cached.games[idx], cached: true, matchmaking: entry.matchmaking, oneLiner: entry.oneLiner };
+  cached.games[idx] = { ...cached.games[idx], cached: true, matchmaking: entry.matchmaking, direction: entry.direction, oneLiner: entry.oneLiner };
   localStorage.setItem('lastSearch', JSON.stringify(cached));
 }
 
@@ -398,7 +404,7 @@ function renderRows(games, container, prefix, rid) {
   container.innerHTML = games.map((g, i) => {
     if (g.remake) return ''; // server no longer sends remakes; guard is only for legacy lastSearch cache
     const key = prefix + i;
-    const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking)}" id="b${key}">${verdictLabel(g.matchmaking)}</span>` : `<span id="b${key}"></span>`;
+    const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking, g.direction)}" id="b${key}" title="${esc(verdictTitle(g.matchmaking, g.direction))}">${verdictLabel(g.matchmaking, g.direction)}</span>` : `<span id="b${key}"></span>`;
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
     const isLive = g.live || g.result === 'Live';
     const resultEl = isLive ? '<span class="badge b-live">LIVE</span>' : `<span class="res-${(g.result || '?')[0]}">${esc(g.result)}</span>`;
@@ -472,7 +478,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
     // View, a re-analyze must overwrite the stale content with the fresh entry, not skip it.
     document.getElementById('d' + i).innerHTML = detailsHTML(g, i, rid);
     const badgeEl = document.getElementById('b' + i);
-    if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking); badgeEl.textContent = verdictLabel(g.matchmaking); }
+    if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking, g.direction); badgeEl.textContent = verdictLabel(g.matchmaking, g.direction); badgeEl.title = verdictTitle(g.matchmaking, g.direction); }
     const oneEl = document.getElementById('o' + i);
     if (oneEl) { oneEl.textContent = g.oneLiner || ''; oneEl.title = g.oneLiner || ''; }
     if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
@@ -659,7 +665,7 @@ function matchupHTML(g, rid) {
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking)}">${verdictLabel(g.matchmaking)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction))}">${verdictLabel(g.matchmaking, g.direction)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
   </table>`;
 }
 

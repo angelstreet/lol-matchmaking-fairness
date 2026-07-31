@@ -93,13 +93,16 @@ td.you + td.you { border-left:none !important; }
    -content once the row got tight) — only .one-h is allowed to flex/shrink/truncate. Widths sized
    to comfortably fit their content; .col-champ additionally ellipsizes since champion names vary
    a lot in length (internal ids have no spaces, so nowrap is always safe, just sometimes long —
-   e.g. "Heimerdinger"). .col-badge is wider than the badge itself (150px) to leave room for a
-   possible favored/against indicator next to it later; it's simply empty for unanalyzed rows. */
+   e.g. "Heimerdinger"). .col-badge is wider than a plain FAIR/NOT FAIR badge (150px) to leave
+   room for the directional qualifier ("NOT FAIR · VS YOU" / "· FOR YOU" — see verdictLabel in
+   main.js); it's simply empty for unanalyzed rows. The badge itself shrinks its font slightly in
+   this context (see .col-badge .badge below) so the qualified text still fits comfortably. */
 .col-res, .col-champ, .col-kda, .col-badge, .col-date { flex-shrink:0; white-space:nowrap; overflow:hidden; }
 .col-res { width:64px; }
 .col-champ { width:84px; text-overflow:ellipsis; }
 .col-kda { width:70px; }
 .col-badge { width:150px; }
+.col-badge .badge { font-size:10.5px; padding:3px 8px; }
 .col-date { width:96px; text-overflow:ellipsis; }
 .gcard { background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; }
 .gcard .row { background:none; border:0; border-radius:0; margin:0; }
