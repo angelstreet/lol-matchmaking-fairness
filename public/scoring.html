@@ -8,113 +8,93 @@
   :root { --bg:#0e1015; --card:#181b22; --line:#262b36; --txt:#e8eaf0; --dim:#8a91a3;
           --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; }
   * { box-sizing:border-box; margin:0; }
-  body { background:var(--bg); color:var(--txt); font:15px/1.6 system-ui, sans-serif; padding:24px; max-width:800px; margin:auto; }
+  body { background:var(--bg); color:var(--txt); font:14px/1.4 system-ui, sans-serif; padding:18px; max-width:760px; margin:auto; }
   a { color:var(--ok); }
-  .back { display:inline-block; color:var(--dim); text-decoration:none; font-size:13px; margin-bottom:20px; }
+  .back { display:inline-block; color:var(--dim); text-decoration:none; font-size:12px; margin-bottom:10px; }
   .back:hover { color:var(--ok); }
-  h1 { font-size:26px; margin-bottom:6px; }
+  h1 { font-size:20px; margin-bottom:2px; display:inline-block; }
   h1 span { color:var(--ok); }
-  h2 { font-size:18px; margin:36px 0 8px; padding-top:16px; border-top:1px solid var(--line); }
-  h2:first-of-type { border-top:none; padding-top:0; }
-  p { margin:10px 0; color:var(--txt); }
-  p.lede { color:var(--dim); font-size:15px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:14px 0; }
-  table { width:100%; border-collapse:collapse; font-size:13.5px; margin:10px 0; }
-  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+  .ga-def { color:var(--dim); font-size:13px; margin:2px 0 12px; }
+  h2 { font-size:13px; margin:14px 0 4px; text-transform:uppercase; letter-spacing:.4px; color:var(--dim); }
+  h2:first-of-type { margin-top:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:4px 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:3px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.3px; }
   tr:last-child td { border-bottom:none; }
   td.n { color:var(--ok); font-weight:700; white-space:nowrap; }
-  code { background:#20242d; border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:12.5px; color:var(--txt); }
-  ul { padding-left:20px; margin:10px 0; }
-  li { margin:6px 0; }
-  .chip { display:inline-block; font-size:11px; background:#20242d; border:1px solid var(--line); border-radius:99px; padding:2px 9px; color:var(--dim); margin-right:4px; }
+  code { background:#20242d; border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:12px; color:var(--txt); }
+  ul { padding-left:18px; margin:2px 0; columns:2; column-gap:24px; }
+  li { margin:2px 0; font-size:13px; break-inside:avoid; }
+  .thresh { font-size:13px; margin-top:5px; }
+  .chip { display:inline-block; font-size:11px; background:#20242d; border:1px solid var(--line); border-radius:99px; padding:1px 8px; color:var(--dim); }
   .chip.ok { color:var(--ok); border-color:var(--ok); }
   .chip.mid { color:var(--mid); border-color:var(--mid); }
   .chip.bad { color:var(--bad); border-color:var(--bad); }
-  .dim { color:var(--dim); }
-  .honesty { background:#1c1712; border:1px solid #3a2d10; border-radius:10px; padding:16px 18px; margin:20px 0; }
-  .honesty h2 { border-top:none; padding-top:0; margin-top:0; color:var(--mid); }
-  footer { margin-top:40px; padding-top:16px; border-top:1px solid var(--line); font-size:12px; color:var(--dim); text-align:center; }
+  .close { font-size:12.5px; color:var(--mid); margin-top:14px; padding-top:10px; border-top:1px solid var(--line); }
+  footer { margin-top:12px; padding-top:8px; border-top:1px solid var(--line); font-size:11px; color:var(--dim); text-align:center; }
 </style>
 </head>
 <body>
   <a class="back" href="/">← Back to the app</a>
   <h1>How we <span>score</span></h1>
-  <p class="lede">A plain-language breakdown of the GA score, lane verdicts, the FAIR/NOT&nbsp;FAIR call, and every chip you'll see on a player.</p>
-
-  <h2>What is GA?</h2>
-  <p>GA ("Game Advantage") is a 0–100 estimate of how strong a player looked <b>before</b> the game started — based only on information that existed at loading screen: their recent ranked history, their rank relative to the lobby, and whether they're on a champion and role they actually play.</p>
-  <p>The core philosophy: <b>only what was knowable before the game counts.</b> Nothing from the game itself (kills, damage, who actually won) feeds into GA — that would just be describing the result, not predicting it. GA is meant to answer "was this a winnable lobby?", not "who played well?".</p>
+  <p class="ga-def">GA: 0–100 pre-game strength from ranked history — nothing from the game itself counts.</p>
 
   <h2>GA components</h2>
-  <p>Six components sum to the final GA (0–100, clamped):</p>
   <div class="card">
     <table>
-      <tr><th>Component</th><th>Max</th><th>How it's computed</th></tr>
-      <tr><td>Form</td><td class="n">27</td><td>Last-5 ranked games win rate × 22, plus ±5 for a 3+ game streak (win or loss), minus 3 for session tilt, minus 2 for rust, minus 2 for AFK risk.</td></tr>
-      <tr><td>Performance</td><td class="n">25</td><td>Average KDA over the last 5 games (each game's KDA capped at 10) × 5, capped at 25.</td></tr>
-      <tr><td>Champion comfort</td><td class="n">20</td><td>Games on this exact champion in the last 5 × 4, plus a mastery-tier bonus (+8 at 100k+, +5 at 25k+, +2 at 5k+). Minus 5 if they're an OTP denied their signature champion this game.</td></tr>
-      <tr><td>Role heat</td><td class="n">15</td><td>3 + 12 × (share of their last 5 games spent in this game's role). 5/5 in role = 15, 0/5 = 3, no positional data at all = a neutral 8.</td></tr>
-      <tr><td>Rank vs lobby</td><td class="n">10</td><td>Tiered by how their rank compares to the lobby average (10/7/5/3, unranked = 5). Overridden to 10 if they look like a smurf.</td></tr>
-      <tr><td>Season winrate</td><td class="n">5</td><td>Their league-v4 season win rate, in 5 tiers (1–5). Needs 20+ season games to count for anything above a neutral 3.</td></tr>
+      <tr><th>Component</th><th>Pts</th><th>How</th></tr>
+      <tr><td>Form</td><td class="n">27</td><td>last-5 W/L ×22, streak ±5, tilt −3, rust −2, AFK −2</td></tr>
+      <tr><td>Performance</td><td class="n">25</td><td>avg KDA (capped 10) ×5</td></tr>
+      <tr><td>Champion comfort</td><td class="n">20</td><td>games on champ ×4 + mastery, OTP-denied −5</td></tr>
+      <tr><td>Role heat</td><td class="n">15</td><td>3 + 12 × role share of last 5</td></tr>
+      <tr><td>Rank vs lobby</td><td class="n">10</td><td>tier vs lobby avg, smurf → 10</td></tr>
+      <tr><td>Season winrate</td><td class="n">5</td><td>WR tiers, needs 20+ season games</td></tr>
     </table>
   </div>
-  <p class="dim">"Rust" = their most recent ranked game was 14+ days ago. "Session tilt" = 3+ games in the ~3 hours before this one, with at least 2 losses. "Smurf" = account level under 60 with either a 58%+ season winrate (20+ games) or 4.0+ average KDA recently — bumps rank-vs-lobby straight to 10 regardless of displayed rank.</p>
 
   <h2>Lane verdicts</h2>
-  <p>Each of the 5 lanes gets an <b>adjusted GA</b> per player before the two sides are compared:</p>
   <div class="card">
-    <p><code>adjusted GA = GA − 5 (if autofill) − 5 (if first-time on champ) − 8 (if countered by the enemy laner)</code></p>
+    <code>adjusted GA = GA − 5 autofill − 5 first-time − 8 countered</code>
+    <div class="thresh"><span class="chip ok">EVEN ≤8</span> · <span class="chip mid">favored 9–18</span> · <span class="chip bad">heavy &gt;18</span></div>
   </div>
-  <p>The gap between adjusted GAs decides the lane verdict:</p>
-  <table>
-    <tr><th>Gap</th><th>Verdict</th></tr>
-    <tr><td>0–8</td><td><span class="chip ok">EVEN</span></td></tr>
-    <tr><td>9–18</td><td><span class="chip mid">favored</span></td></tr>
-    <tr><td>19+</td><td><span class="chip bad">HEAVILY favored</span></td></tr>
-  </table>
-  <p>This is why a lane can show a clear favorite even when the two players' raw GA numbers look close — an autofilled or off-champion player, or one walking into a known hard counter, is carrying risk the raw number doesn't show. The lane's tooltip explains it when this happens.</p>
 
-  <h2>The FAIR / NOT FAIR call</h2>
-  <p>The overall verdict is binary and reason-based: if <b>any</b> of the following are true, the lobby is called NOT FAIR (worded relative to your team — "against you" vs "in your favor" — though the verdict itself doesn't care which way it points):</p>
+  <h2>NOT FAIR if any of</h2>
   <div class="card">
     <ul>
-      <li>Team GA gap of <b>12+</b> (average GA per team, including a duo-synergy bonus scaled by each proven duo's joint win record together, capped at 8 per team).</li>
-      <li>A tier spread inside one team of <b>2.5+</b> tiers.</li>
-      <li>An autofill/first-time <b>risk asymmetry of 8+</b> between the two teams, against your team.</li>
-      <li><b>2 or more</b> lanes heavily favored to one side more than the other.</li>
-      <li>Any single lane a <b>30+ GA blowout</b>.</li>
-      <li>A <b>net lane advantage of 35+</b> GA summed across all 5 lanes (catches lopsided lanes that cancel out in the team average — e.g. two +30 lanes and one −14 still nets a huge swing the average alone would miss).</li>
-      <li><b>2 or more</b> first-time champions on your team.</li>
+      <li>Team GA gap ≥12 (incl. duo bonus, cap 8)</li>
+      <li>Tier spread inside a team ≥2.5</li>
+      <li>Risk asymmetry (autofill/first-time) ≥8</li>
+      <li>2+ lanes heavily favored one side</li>
+      <li>Blowout lane ≥30 GA</li>
+      <li>Net lane advantage ≥35 GA</li>
+      <li>2+ first-time champs on your team</li>
     </ul>
   </div>
 
-  <h2>Chip glossary</h2>
-  <table>
-    <tr><th>Chip</th><th>Meaning</th></tr>
-    <tr><td><span class="chip">OTP</span></td><td>One-trick: played this champion in 4+ of their last 5 games, or 150k+ mastery points on it.</td></tr>
-    <tr><td><span class="chip mid">OTP denied</span></td><td>They're a one-trick on some other champion (4+ of their last 5 games) but aren't playing it this game.</td></tr>
-    <tr><td><span class="chip">DUO</span></td><td>Queued with a teammate — proven by shared pre-game matches, not just a guess. Tooltip names the partner and their joint record when known.</td></tr>
-    <tr><td><span class="chip">autofill</span></td><td>Playing outside their usual role (based on their last 5 games).</td></tr>
-    <tr><td><span class="chip">first-time</span></td><td>No recent games and low mastery on this champion.</td></tr>
-    <tr><td><span class="chip bad">countered</span></td><td>Their champion is on the lane-counter list (see below) against the enemy laner's champion. Shown in the matchup view only.</td></tr>
-    <tr><td><span class="chip bad">SMURF?</span></td><td>Low account level paired with a strong season winrate or recent KDA — likely outclasses their displayed rank.</td></tr>
-    <tr><td><span class="chip mid">tilt?</span></td><td>3+ games in the last ~3 hours with at least 2 losses — possible session tilt.</td></tr>
-    <tr><td><span class="chip">rusty</span></td><td>Hasn't played this queue in 14+ days — recent form may be less predictive.</td></tr>
-    <tr><td><span class="chip bad">AFK risk</span></td><td>A recent game ended in an early surrender for this player — possible AFK/DC pattern.</td></tr>
-    <tr><td>🔥 3W / ❄️ 3L</td><td>Win or loss streak of 3+ games entering this one.</td></tr>
-    <tr><td>cs/min tiers</td><td>Elite (9+), good (8+), decent (7+), average (5.5+), low (under 5.5) — CS per minute in this game.</td></tr>
-    <tr><td>wr extremes</td><td>Season winrate shown only when it's extreme (58%+ or 44%-or-under) and the sample is big enough to mean something (20+ season games).</td></tr>
-  </table>
-
-  <div class="honesty">
-    <h2>Be honest with yourself about this</h2>
-    <p>Every number on this page is a heuristic, not truth. GA is a rough pre-game estimate built from public ranked history — it has no idea about someone's actual mechanical skill, communication, or how they're feeling that day. A NOT FAIR lobby is absolutely winnable, and a FAIR one can still be a stomp. Treat the verdict as "was this a reasonable lobby on paper", not a guarantee or an excuse.</p>
-    <p>The champion counter matrix (<code>lib/counters.mjs</code>) is hand-authored from general matchup knowledge, not patch-tuned or exhaustive — it's deliberately conservative, and it's community-editable: if you think a matchup is wrong or missing, <a href="https://github.com/angelstreet/lol-matchmaking-fairness/blob/main/lib/counters.mjs" target="_blank" rel="noreferrer">open a PR on GitHub</a>.</p>
+  <h2>Chips</h2>
+  <div class="card">
+    <table>
+      <tr><td><span class="chip">OTP</span></td><td>4+/5 games or 150k+ mastery</td></tr>
+      <tr><td><span class="chip mid">OTP denied</span></td><td>one-trick, different champ this game</td></tr>
+      <tr><td><span class="chip">DUO</span></td><td>proven by shared pre-game matches</td></tr>
+      <tr><td><span class="chip">autofill</span></td><td>off their usual role</td></tr>
+      <tr><td><span class="chip">first-time</span></td><td>no recent games, low mastery</td></tr>
+      <tr><td><span class="chip bad">countered</span></td><td>on the lane-counter list</td></tr>
+      <tr><td><span class="chip bad">SMURF?</span></td><td>low level, high WR/KDA</td></tr>
+      <tr><td><span class="chip mid">tilt?</span></td><td>3+ games/3h, 2+ losses</td></tr>
+      <tr><td><span class="chip">rusty</span></td><td>14+ days since last game</td></tr>
+      <tr><td><span class="chip bad">AFK risk</span></td><td>recent early-surrender game</td></tr>
+      <tr><td>🔥/❄️ streaks</td><td>3+ win/loss streak</td></tr>
+      <tr><td>cs/min tiers</td><td>elite 9+ · good 8+ · low &lt;5.5</td></tr>
+      <tr><td>wr extremes</td><td>≥58% or ≤44%, 20+ games</td></tr>
+    </table>
   </div>
 
+  <p class="close">Heuristics, not truth — a NOT FAIR game is still winnable. Counter matrix is <a href="https://github.com/angelstreet/lol-matchmaking-fairness/blob/main/lib/counters.mjs" target="_blank" rel="noreferrer">community-editable on GitHub</a>.</p>
+
   <footer>
-    <a href="https://github.com/angelstreet/lol-matchmaking-fairness" target="_blank" rel="noreferrer">⭐ Open source — star it on GitHub</a>
+    <a href="https://github.com/angelstreet/lol-matchmaking-fairness" target="_blank" rel="noreferrer">⭐ Open source</a>
     <span> · MIT · not endorsed by Riot Games</span>
   </footer>
 </body>
