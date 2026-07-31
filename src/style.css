@@ -115,15 +115,18 @@ td.you + td.you { border-left:none !important; }
    to comfortably fit their content; .col-champ additionally ellipsizes since champion names vary
    a lot in length (internal ids have no spaces, so nowrap is always safe, just sometimes long —
    e.g. "Heimerdinger"). .col-badge is wider than a plain FAIR/NOT FAIR badge (150px) to leave
-   room for the directional qualifier ("NOT FAIR · VS YOU" / "· FOR YOU" — see verdictLabel in
-   main.js); it's simply empty for unanalyzed rows. The badge itself shrinks its font slightly in
-   this context (see .col-badge .badge below) so the qualified text still fits comfortably. */
+   room for the directional qualifier ("NOT FAIR · THEIR FAVOR" / "· YOUR FAVOR" — see
+   verdictLabel in main.js); it's simply empty for unanalyzed rows. The badge itself shrinks its
+   font slightly in this context (see .col-badge .badge below) so the qualified text still fits
+   comfortably — measured "NOT FAIR · THEIR FAVOR" (the longer of the two) at 146.5px inside the
+   150px column at the original 10.5px/8px-padding, only ~3.5px of margin, too tight to trust
+   across different OS font rendering; 10px keeps ~10px of margin instead. */
 .col-res, .col-champ, .col-kda, .col-badge, .col-date { flex-shrink:0; white-space:nowrap; overflow:hidden; }
 .col-res { width:64px; }
 .col-champ { width:84px; text-overflow:ellipsis; }
 .col-kda { width:70px; }
 .col-badge { width:150px; }
-.col-badge .badge { font-size:10.5px; padding:3px 8px; }
+.col-badge .badge { font-size:10px; padding:3px 8px; }
 /* 96px was sized for the old absolute date ("38m · 29/07 18:06"); the short relative date
    ("38m · 2d ago") is comfortably shorter, so this shrinks with real slack to spare — 78px still
    covers the common cases ("Xm ago"/"Xh ago"/"Xd ago") with ellipsis as a safety net for rarer
