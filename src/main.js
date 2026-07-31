@@ -519,26 +519,29 @@ function enrichDuos(g) {
 function chipsHTML(p, oppChamp) {
   if (!p) return '';
   const c = [];
-  if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role']);
-  if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion']);
-  if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery']);
+  // Every chip gets a semantic color — no grey/default chips. Neutral/informational facts
+  // (DUO, OTP) are blue; risk signals that hurt confidence in the GA number (autofill,
+  // first-time, rusty) are amber, same family as tilt; streaks are green (win) / red (loss).
+  if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role', 'flag-autofill']);
+  if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion', 'flag-first-time']);
+  if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery', 'flag-otp']);
   if (p.flags?.includes('otp-denied')) c.push(['OTP denied', `One-trick on ${p.deniedChamp} but not playing it this game`, 'flag-otp-denied']);
   if (oppChamp && counterPenalty(p.champ, oppChamp) > 0) c.push(['countered', `${p.champ} is countered by ${oppChamp}`, 'flag-countered']);
   // Session-history warning flags — computed from the player's prior games / league entry,
   // shown compactly; each is rare enough that a plain chip (no icon) reads fine.
   if (p.flags?.includes('tilt')) c.push(['tilt?', '3+ games in the last ~3h with at least 2 losses — possible session tilt', 'flag-tilt']);
-  if (p.flags?.includes('rusty')) c.push(['rusty', "Hasn't played this queue in 14+ days — recent form may be less predictive", '']);
+  if (p.flags?.includes('rusty')) c.push(['rusty', "Hasn't played this queue in 14+ days — recent form may be less predictive", 'flag-rusty']);
   if (p.flags?.includes('smurf')) c.push(['SMURF?', 'Low account level with a strong season winrate or recent KDA — likely outclasses their displayed rank', 'flag-smurf']);
   if (p.flags?.includes('afk-risk')) c.push(['AFK risk', 'A recent game ended in an early surrender for this player — possible AFK/DC pattern', 'flag-afk']);
   if (p.duo) {
     const tip = p.duoWith
       ? `Duo with ${p.duoWith} — ${p.duoRecord ? p.duoRecord + ' together in their last 5 shared games' : (p.duoShared != null ? p.duoShared + '/5 previous games together' : 'proven by shared pre-game matches')}`
       : 'Queued with a teammate — proven by shared pre-game matches';
-    c.push(['DUO', tip]);
+    c.push(['DUO', tip, 'flag-duo']);
   }
   if (p.streak) {
     const n = parseInt(p.streak), w = p.streak.endsWith('W');
-    if (n >= 3) c.push([w ? `🔥 ${n}W` : `❄️ ${n}L`, (w ? 'Win' : 'Loss') + ' streak entering this game']);
+    if (n >= 3) c.push([w ? `🔥 ${n}W` : `❄️ ${n}L`, (w ? 'Win' : 'Loss') + ' streak entering this game', w ? 'streak-win' : 'streak-loss']);
   }
   if (p.cspm != null && p.pos !== 'UTILITY') {
     const v = p.cspm;

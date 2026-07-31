@@ -82,6 +82,17 @@ td.you + td.you { border-left:none !important; }
 .chip.flag-smurf { color:var(--bad); border-color:var(--bad); font-weight:800; }
 .chip.flag-afk { color:var(--bad); border-color:var(--bad); }
 .chip.flag-countered { color:var(--bad); border-color:var(--bad); }
+/* Every chip is semantically colored — no plain grey/default chips (the .chip base color:var
+   (--dim) above is only a fallback for the one intentionally-neutral case, the "average" cs/min
+   tier). Blue = neutral fact worth knowing (proven duo, one-trick pick); amber = risk that makes
+   the GA number less trustworthy, same family as tilt; streaks are green/red for win/loss. */
+.chip.flag-duo { color:var(--blue); border-color:var(--blue); }
+.chip.flag-otp { color:var(--blue); border-color:var(--blue); }
+.chip.flag-autofill { color:var(--mid); border-color:var(--mid); }
+.chip.flag-first-time { color:var(--mid); border-color:var(--mid); }
+.chip.flag-rusty { color:var(--mid); border-color:var(--mid); }
+.chip.streak-win { color:var(--ok); border-color:var(--ok); }
+.chip.streak-loss { color:var(--bad); border-color:var(--bad); }
 .matchup td { white-space:normal; }
 #bmStar { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:#f2c34c; font-size:17px; padding:2px 4px; line-height:1; }
 #bmStar.starred { background:none; }

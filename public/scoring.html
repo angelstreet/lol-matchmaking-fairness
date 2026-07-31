@@ -6,7 +6,7 @@
 <title>How we score — LoL Matchmaking Fairness</title>
 <style>
   :root { --bg:#0e1015; --card:#181b22; --line:#262b36; --txt:#e8eaf0; --dim:#8a91a3;
-          --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; }
+          --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; }
   * { box-sizing:border-box; margin:0; }
   body { background:var(--bg); color:var(--txt); font:14px/1.4 system-ui, sans-serif; padding:18px; max-width:760px; margin:auto; }
   a { color:var(--ok); }
@@ -31,6 +31,7 @@
   .chip.ok { color:var(--ok); border-color:var(--ok); }
   .chip.mid { color:var(--mid); border-color:var(--mid); }
   .chip.bad { color:var(--bad); border-color:var(--bad); }
+  .chip.blue { color:var(--blue); border-color:var(--blue); }
   .close { font-size:12.5px; color:var(--mid); margin-top:14px; padding-top:10px; border-top:1px solid var(--line); }
   footer { margin-top:12px; padding-top:8px; border-top:1px solid var(--line); font-size:11px; color:var(--dim); text-align:center; }
 </style>
@@ -76,17 +77,17 @@
   <h2>Chips</h2>
   <div class="card">
     <table>
-      <tr><td><span class="chip">OTP</span></td><td>4+/5 games or 150k+ mastery</td></tr>
+      <tr><td><span class="chip blue">OTP</span></td><td>4+/5 games or 150k+ mastery</td></tr>
       <tr><td><span class="chip mid">OTP denied</span></td><td>one-trick, different champ this game</td></tr>
-      <tr><td><span class="chip">DUO</span></td><td>proven by shared pre-game matches</td></tr>
-      <tr><td><span class="chip">autofill</span></td><td>off their usual role</td></tr>
-      <tr><td><span class="chip">first-time</span></td><td>no recent games, low mastery</td></tr>
+      <tr><td><span class="chip blue">DUO</span></td><td>proven by shared pre-game matches</td></tr>
+      <tr><td><span class="chip mid">autofill</span></td><td>off their usual role</td></tr>
+      <tr><td><span class="chip mid">first-time</span></td><td>no recent games, low mastery</td></tr>
       <tr><td><span class="chip bad">countered</span></td><td>on the lane-counter list</td></tr>
       <tr><td><span class="chip bad">SMURF?</span></td><td>low level, high WR/KDA</td></tr>
       <tr><td><span class="chip mid">tilt?</span></td><td>3+ games/3h, 2+ losses</td></tr>
-      <tr><td><span class="chip">rusty</span></td><td>14+ days since last game</td></tr>
+      <tr><td><span class="chip mid">rusty</span></td><td>14+ days since last game</td></tr>
       <tr><td><span class="chip bad">AFK risk</span></td><td>recent early-surrender game</td></tr>
-      <tr><td>🔥/❄️ streaks</td><td>3+ win/loss streak</td></tr>
+      <tr><td><span class="chip ok">🔥</span> / <span class="chip bad">❄️</span> streaks</td><td>3+ win/loss streak</td></tr>
       <tr><td>cs/min tiers</td><td>elite 9+ · good 8+ · low &lt;5.5</td></tr>
       <tr><td>wr extremes</td><td>≥58% or ≤44%, 20+ games</td></tr>
     </table>
