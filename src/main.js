@@ -598,11 +598,36 @@ async function analyze(matchId, btn, i, attempt = 0) {
     if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
     card.classList.add('open');
     $('#status').textContent = '';
-    // A (re-)analysis can change what history shows for this game — most importantly, a live
-    // snapshot upgrading to its final analysis (same putAnalysis row, overwritten in place) needs
-    // its history row to stop looking like a live snapshot too. History has its own separate DOM
-    // (#hist, rendered by loadHistory) so nothing above touches it on its own.
-    loadHistory(0);
+    // A forced (re-)analysis can change what history shows for this game — most importantly, a
+    // live snapshot upgrading to its final analysis (same putAnalysis row, overwritten in place)
+    // needs its history row to stop looking like a live snapshot too. Plain View on an
+    // already-final cached entry doesn't change anything history would show, so skip this
+    // entirely then — loadHistory(0) fully replaces #hist's DOM, which would otherwise silently
+    // "close" whatever history card the user had open (a plain View never touches #hist at all,
+    // so it never had this problem).
+    if (force) {
+      // If this same game currently has an OPEN row in history (it can appear in both the search
+      // list and history at once, and either one's button can be what triggered this call),
+      // snapshot that before the rebuild wipes #hist, then restore it afterward on the fresh DOM
+      // — re-run detailsHTML for the new element, since the old one no longer exists. If the row
+      // has fallen off page 1 by the time loadHistory(0) resets there, there's nothing to
+      // restore, which is fine (page-reset-on-refresh is unchanged, pre-existing behavior).
+      const histBtn = document.querySelector(`#hist .mini[data-mid="${CSS.escape(matchId)}"]:not(.icon-btn)`);
+      const wasHistOpen = !!histBtn?.dataset.loaded;
+      await loadHistory(0);
+      if (wasHistOpen) {
+        const freshBtn = document.querySelector(`#hist .mini[data-mid="${CSS.escape(matchId)}"]:not(.icon-btn)`);
+        const freshKey = freshBtn?.id.slice(1); // id="v${key}" -> key
+        const freshCard = freshKey && document.getElementById('g' + freshKey);
+        const freshDetails = freshKey && document.getElementById('d' + freshKey);
+        if (freshBtn && freshCard && freshDetails) {
+          freshDetails.innerHTML = detailsHTML(g, freshKey, rid);
+          freshCard.classList.add('open');
+          freshBtn.dataset.loaded = '1';
+          freshBtn.textContent = '▴ Hide';
+        }
+      }
+    }
   } catch (err) {
     if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message);
     if (!isReanalyze) { btn.textContent = 'Analyze'; btn.disabled = false; }
