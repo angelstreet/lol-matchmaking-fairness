@@ -9,8 +9,15 @@ input, select { background:var(--card); border:1px solid var(--line); color:var(
 .combo { position:relative; flex:1; min-width:220px; display:flex; }
 input#riotId { flex:1; min-width:200px; width:100%; padding-right:40px; }
 .keywrap { position:relative; display:inline-flex; }
-input#apiKey { width:270px; padding-right:28px; transition:border-color .3s ease; }
+input#apiKey { width:270px; padding-right:46px; transition:border-color .3s ease; }
 input#apiKey.key-updated { border-color:var(--ok); }
+/* Inline validity indicator (see the debounced /api/keycheck call in main.js) — sits between the
+   input's text and the clear (✕) button, so padding-right on the input above was widened to make
+   room for both. Empty/neutral by default (no key, or one that doesn't look like RGAPI-...). */
+#keyValid { position:absolute; right:26px; top:50%; transform:translateY(-50%); font-size:13px; line-height:1; font-weight:700; cursor:default; }
+#keyValid.ok { color:var(--ok); }
+#keyValid.bad { color:var(--bad); }
+#keyValid.checking { color:var(--dim); font-weight:400; }
 #clearKey { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:var(--dim); font-size:13px; padding:2px 4px; line-height:1; cursor:pointer; }
 #clearKey:hover { color:var(--txt); }
 button { background:var(--ok); color:#06251b; border:0; border-radius:8px; padding:10px 20px; font-weight:700; font-size:15px; cursor:pointer; }

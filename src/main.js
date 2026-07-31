@@ -20,6 +20,7 @@ document.querySelector('#app').innerHTML = `
     <div class="keyrow">
       <div class="keywrap">
         <input id="apiKey" name="riot-api-key" placeholder="Your Riot API key (optional)" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore>
+        <span id="keyValid" title=""></span>
         <button type="button" id="clearKey" title="Clear saved key">✕</button>
       </div>
       <div class="note">
@@ -58,13 +59,36 @@ function flashKeyField() {
   clearTimeout(keyFlashTimer);
   keyFlashTimer = setTimeout(() => el.classList.remove('key-updated'), 900);
 }
+// Self-diagnosis for the "key disappears" confusion: rather than the user only finding out a
+// key is bad when some later search/analyze fails (and possibly getting blamed for a failure
+// that was actually the shared server key's, see handleKeyError below), validate whatever's in
+// the field directly against Riot as soon as it looks like a real key, and show the result
+// inline (✓/✗) right there. Debounced so it doesn't fire on every keystroke while pasting/typing.
+let keyCheckTimer = null;
+const looksLikeKey = v => /^RGAPI-/i.test(v);
+async function checkKeyValidity() {
+  const el = $('#keyValid');
+  const val = $('#apiKey').value.trim();
+  if (!looksLikeKey(val)) { el.textContent = ''; el.title = ''; el.className = ''; return; }
+  el.textContent = '…'; el.title = 'Checking…'; el.className = 'checking';
+  try {
+    const r = await fetch(`${API}/api/keycheck`, { headers: { 'x-api-key': val } });
+    const data = await r.json();
+    if (data.valid) { el.textContent = '✓'; el.title = 'This key is valid'; el.className = 'ok'; }
+    else { el.textContent = '✗'; el.title = `Riot rejected this key (status ${data.status || '?'}) — it may be expired or mistyped`; el.className = 'bad'; }
+  } catch { el.textContent = ''; el.title = ''; el.className = ''; } // network hiccup — not the key's fault, stay silent
+}
 $('#apiKey').addEventListener('input', () => {
   localStorage.setItem('rgapi', $('#apiKey').value.trim());
   flashKeyField();
+  clearTimeout(keyCheckTimer);
+  keyCheckTimer = setTimeout(checkKeyValidity, 800);
 });
+if ($('#apiKey').value.trim()) checkKeyValidity(); // validate a key restored from localStorage on load too
 $('#clearKey').addEventListener('click', () => {
   $('#apiKey').value = '';
   localStorage.removeItem('rgapi');
+  $('#keyValid').textContent = ''; $('#keyValid').title = ''; $('#keyValid').className = '';
   $('#apiKey').focus();
 });
 
@@ -95,12 +119,18 @@ const normRiotId = s => String(s || '').trim().replace(/\s*#\s*/, '#');
 const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-key': k } : {}; };
 // A request that SENT the user's stored key can fail because that key expired/was revoked
 // (lib/riot.mjs's friendly 401/403 message contains 'key invalid or expired') — when that
-// happens, auto-clear the dead key instead of leaving the user stuck retrying with it. Returns
-// true if it handled the error (caller should skip its normal ❌ error display), false otherwise.
+// happens, auto-clear the dead key instead of leaving the user stuck retrying with it.
+// Critically, the api/*.mjs handlers now append '(your pasted key)' or '(the shared server key)'
+// to every caught error depending on which key was actually in play server-side — only the
+// former should ever clear the user's field. Without this, a failure that was really the
+// server's own expired shared key (e.g. because the client's key header happened to be empty for
+// that one request) would get mislabeled and wipe out the user's perfectly valid key instead.
 function handleKeyError(err, sentKey) {
-  if (!sentKey || !String(err?.message || '').includes('key invalid or expired')) return false;
+  const msg = String(err?.message || '');
+  if (!sentKey || !msg.includes('key invalid or expired') || !msg.includes('(your pasted key)')) return false;
   $('#apiKey').value = '';
   localStorage.removeItem('rgapi');
+  $('#keyValid').textContent = ''; $('#keyValid').title = ''; $('#keyValid').className = '';
   $('#status').textContent = 'Your saved Riot API key was expired and has been removed — paste a fresh one from developer.riotgames.com, or continue keyless (3/day).';
   return true;
 }

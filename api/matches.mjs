@@ -6,12 +6,17 @@ import { makeClient, resolveAccount, listMatchIds, fetchMatch, pStats } from '..
 import * as store from '../lib/db.mjs';
 
 export default async function handler(req, res) {
+  // Hoisted above the try so the catch below can report which key was actually in play — a
+  // caught Riot error (e.g. the 401/403 "key invalid or expired" from lib/riot.mjs) is otherwise
+  // ambiguous about whether it was the user's own pasted key or the shared server key that failed.
+  let userKey;
   try {
     await store.init();
     const riotId = String(req.query.riotId || '').trim().replace(/\s*#\s*/, '#');
     const games = Math.min(10, parseInt(req.query.games || '5', 10));
     const region = String(req.query.region || 'euw').replace(/[^a-z]/g, '');
-    const key = req.headers['x-api-key'] || process.env.RIOT_API_KEY;
+    userKey = req.headers['x-api-key'];
+    const key = userKey || process.env.RIOT_API_KEY;
     if (!riotId.includes('#')) return res.status(400).json({ error: 'riotId must be Name#TAG' });
     if (!key) return res.status(400).json({ error: 'no API key available' });
 
@@ -47,7 +52,7 @@ export default async function handler(req, res) {
     }
     res.status(200).json({ puuid: acct.puuid, summoner, games: out });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message + (userKey ? ' (your pasted key)' : ' (the shared server key)') });
   }
 }
 

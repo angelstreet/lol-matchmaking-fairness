@@ -8,6 +8,10 @@ import { userFromReq } from '../lib/clerk.mjs';
 import * as store from '../lib/db.mjs';
 
 export default async function handler(req, res) {
+  // Hoisted above the try so the catch below can report which key was actually in play — a
+  // caught Riot error (e.g. the 401/403 "key invalid or expired" from lib/riot.mjs) is otherwise
+  // ambiguous about whether it was the user's own pasted key or the shared server key that failed.
+  let userKey;
   try {
     await store.init();
     const riotId = String(req.query.riotId || '').trim().replace(/\s*#\s*/, '#');
@@ -26,7 +30,7 @@ export default async function handler(req, res) {
     const cached = await store.getAnalysis(matchId, summoner);
     if (cached && !force) return res.status(200).json({ cached: true, entry: cached });
 
-    const userKey = req.headers['x-api-key'];
+    userKey = req.headers['x-api-key'];
     const sharedKey = process.env.RIOT_API_KEY;
     const ip = (req.headers['x-forwarded-for'] || 'local').split(',')[0].trim();
 
@@ -62,6 +66,6 @@ export default async function handler(req, res) {
       if (lockHolder) await store.releaseLock(lockHolder);
     }
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message + (userKey ? ' (your pasted key)' : ' (the shared server key)') });
   }
 }
