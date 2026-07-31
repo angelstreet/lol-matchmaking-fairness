@@ -280,6 +280,24 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
 let liveWatchActive = false;
 const LIVE_WATCH_MAX_AGE = 6 * 60 * 60 * 1000; // stale after 6h — give up and let it be cleared
 const LIVE_WATCH_MAX_TRIES = 5;
+// Auto-upgrading a live-scouted game must fire at most once per matchId — a small capped
+// localStorage list, checked (and written to) before ever calling analyze() automatically, so
+// even a page reload or an overlapping poll mid-analysis can't trigger a second auto-run for the
+// same game. Capped at 20 so this never grows unbounded; oldest entries drop first.
+const AUTO_FINAL_CAP = 20;
+function autoFinalDoneHas(matchId) {
+  let list;
+  try { list = JSON.parse(localStorage.getItem('autoFinalDone') || '[]'); } catch { list = null; }
+  return Array.isArray(list) && list.includes(matchId);
+}
+function autoFinalDoneAdd(matchId) {
+  let list;
+  try { list = JSON.parse(localStorage.getItem('autoFinalDone') || '[]'); } catch { list = null; }
+  if (!Array.isArray(list)) list = [];
+  if (!list.includes(matchId)) list.push(matchId);
+  while (list.length > AUTO_FINAL_CAP) list.shift();
+  try { localStorage.setItem('autoFinalDone', JSON.stringify(list)); } catch {}
+}
 async function pollLiveWatch(attempt = 0) {
   let marker;
   try { marker = JSON.parse(localStorage.getItem('liveWatch') || 'null'); } catch { marker = null; }
@@ -296,11 +314,27 @@ async function pollLiveWatch(attempt = 0) {
       updateStar();
       renderRows(data.games, $('#list'), 'm', marker.riotId);
       localStorage.setItem('lastSearch', JSON.stringify({ riotId: marker.riotId, region: marker.region, games: data.games, ts: Date.now() }));
-      if (data.games.some(g => g.matchId === marker.matchId)) {
-        // Found it — it's already rendered with wasLive -> data-force + the amber-highlighted
-        // Analyze button (see renderRows), no auto-analyze here since that could burn the user's
-        // key/quota without them asking. Just stop watching.
-        localStorage.removeItem('liveWatch');
+      const idx = data.games.findIndex(g => g.matchId === marker.matchId);
+      if (idx !== -1) {
+        // Found it — the game finished and Riot has it indexed. Automatically run the final
+        // analysis (user explicitly asked for this — "then after the game we need to update it
+        // automatically"), reusing analyze() exactly as a manual click on this row's button
+        // would: same key/quota fallback, same 409-queued retry, same spinner/error UI on the
+        // button itself. Marked done BEFORE firing so nothing can double-trigger it. The
+        // liveWatch marker only clears once analyze() fully settles (success or a definitive,
+        // non-retrying failure — analyze() already exhausts its own 409 retries internally
+        // before its promise resolves) — if it fails (expired key, quota), the marker is gone
+        // but the row keeps its amber wasLive-ready highlight regardless (that comes from
+        // g.wasLive at render time, not from the marker), so manual recovery still works.
+        if (!autoFinalDoneHas(marker.matchId)) {
+          autoFinalDoneAdd(marker.matchId);
+          const rowKey = 'm' + idx;
+          const btn = document.getElementById('v' + rowKey);
+          if (btn) { analyze(marker.matchId, btn, rowKey).finally(() => localStorage.removeItem('liveWatch')); }
+          else localStorage.removeItem('liveWatch'); // shouldn't happen — row just rendered above
+        } else {
+          localStorage.removeItem('liveWatch'); // already auto-attempted this game before
+        }
         liveWatchActive = false;
         return;
       }
@@ -564,6 +598,11 @@ async function analyze(matchId, btn, i, attempt = 0) {
     if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
     card.classList.add('open');
     $('#status').textContent = '';
+    // A (re-)analysis can change what history shows for this game — most importantly, a live
+    // snapshot upgrading to its final analysis (same putAnalysis row, overwritten in place) needs
+    // its history row to stop looking like a live snapshot too. History has its own separate DOM
+    // (#hist, rendered by loadHistory) so nothing above touches it on its own.
+    loadHistory(0);
   } catch (err) {
     if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message);
     if (!isReanalyze) { btn.textContent = 'Analyze'; btn.disabled = false; }
