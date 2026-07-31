@@ -45,19 +45,19 @@
   <div class="card">
     <table>
       <tr><th>Component</th><th>Pts</th><th>How</th></tr>
-      <tr><td>Form</td><td class="n">27</td><td>last-5 W/L ×22, streak ±5, tilt −3, rust −2, AFK −2</td></tr>
+      <tr><td>Form</td><td class="n">27</td><td>last-5 W/L ×22, streak ±2, rust −2, AFK −2</td></tr>
       <tr><td>Performance</td><td class="n">25</td><td>avg KDA (capped 10) ×5</td></tr>
       <tr><td>Champion comfort</td><td class="n">20</td><td>games on champ ×4 + mastery, OTP-denied −5</td></tr>
       <tr><td>Role heat</td><td class="n">15</td><td>3 + 12 × role share of last 5</td></tr>
-      <tr><td>Rank vs lobby</td><td class="n">10</td><td>tier vs lobby avg, smurf → 10</td></tr>
+      <tr><td>Rank vs lobby</td><td class="n">10</td><td>tier vs lobby avg, smurf +3 (cap 10)</td></tr>
       <tr><td>Season winrate</td><td class="n">5</td><td>WR tiers, needs 20+ season games</td></tr>
     </table>
   </div>
 
   <h2>Lane verdicts</h2>
   <div class="card">
-    <code>adjusted GA = GA − 5 autofill − 5 first-time − 8 countered</code>
-    <div class="thresh"><span class="chip ok">EVEN ≤8</span> · <span class="chip mid">favored 9–18</span> · <span class="chip bad">heavy &gt;18</span></div>
+    <code>adjusted GA = GA − 5 autofill − 7 first-time − 8 countered</code>
+    <div class="thresh"><span class="chip ok">EVEN ≤5</span> · <span class="chip mid">favored 6–18</span> · <span class="chip bad">heavy &gt;18</span></div>
   </div>
 
   <h2>NOT FAIR if any of</h2>
@@ -71,6 +71,7 @@
       <li>Net lane advantage ≥35 GA</li>
       <li>2+ first-time champs on your team</li>
     </ul>
+    <div class="thresh">Team GA = 65% team avg + 35% avg of top 2 GAs (not a flat average).</div>
     <div class="thresh">Shown as <span class="chip bad">VS YOU</span> / <span class="chip mid">FOR YOU</span> relative to the profile analyzed.</div>
   </div>
 
@@ -83,8 +84,8 @@
       <tr><td><span class="chip mid">autofill</span></td><td>off their usual role</td></tr>
       <tr><td><span class="chip mid">first-time</span></td><td>no recent games, low mastery</td></tr>
       <tr><td><span class="chip bad">countered</span></td><td>on the lane-counter list</td></tr>
-      <tr><td><span class="chip bad">SMURF?</span></td><td>low level, high WR/KDA</td></tr>
-      <tr><td><span class="chip mid">tilt?</span></td><td>3+ games/3h, 2+ losses</td></tr>
+      <tr><td><span class="chip bad">SMURF?</span></td><td>low level, WR≥58% or KDA≥5</td></tr>
+      <tr><td><span class="chip mid">tilt?</span></td><td>3+ games/3h, 2+ losses — info only, no score impact</td></tr>
       <tr><td><span class="chip mid">rusty</span></td><td>14+ days since last game</td></tr>
       <tr><td><span class="chip bad">AFK risk</span></td><td>recent early-surrender game</td></tr>
       <tr><td><span class="chip ok">🔥</span> / <span class="chip bad">❄️</span> streaks</td><td>3+ win/loss streak</td></tr>

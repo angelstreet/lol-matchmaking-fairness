@@ -562,8 +562,10 @@ function chipsHTML(p, oppChamp) {
 
 // Off-role (autofill) and unfamiliar-champion (first-time) picks are risk, not skill — mirrors
 // riskOf in lib/riot.mjs so a lane with an autofilled/first-timing player never reads EVEN
-// against a clean opponent just because the raw GAs happened to land close together.
-const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 5 : 0);
+// against a clean opponent just because the raw GAs happened to land close together. v4
+// (backtest-driven): first-time bumped 5 -> 7 (autofill unchanged at 5) — first-timers in the
+// backtest averaged place 8.8/10, well worse than the old penalty implied.
+const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 7 : 0);
 
 // a and b are risk-adjusted GAs (see riskOf above) — callers no longer pass raw p.ga
 // directly, so a lane where one side is autofilled/first-timing never reads EVEN just because
@@ -573,7 +575,10 @@ function laneVerdict(a, b, riskNote) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
   const note = riskNote ? ` (${riskNote})` : '';
-  if (ad <= 8) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points${note}">EVEN</span>`;
+  // v4 (backtest-driven): EVEN band narrowed 8 -> 5 — a backtest of 17 cached analyses found
+  // EVEN-band lanes were only right 27% of the time, the widest miss of any band. Favored is now
+  // 6-18 (heavy stays >=19, unchanged).
+  if (ad <= 5) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points${note}">EVEN</span>`;
   const heavy = ad > 18;
   const strength = heavy ? 'HEAVILY favored' : 'favored';
   const side = d > 0 ? 'blue' : 'red', sideLabel = side === 'blue' ? 'Blue' : 'Red';
@@ -588,7 +593,7 @@ function laneVerdict(a, b, riskNote) {
 function laneFavor(a, b) {
   if (a == null || b == null) return null;
   const d = a - b, ad = Math.abs(d);
-  if (ad <= 8) return null;
+  if (ad <= 5) return null; // v4: EVEN band narrowed 8 -> 5, same threshold as laneVerdict above
   return { side: d > 0 ? 'blue' : 'red' };
 }
 
@@ -617,7 +622,7 @@ function matchupHTML(g, rid) {
   const verdictCat = (a, b) => {
     if (a == null || b == null) return null;
     const d = a - b;
-    return Math.abs(d) <= 8 ? 'EVEN' : (d > 0 ? 'BLUE' : 'RED');
+    return Math.abs(d) <= 5 ? 'EVEN' : (d > 0 ? 'BLUE' : 'RED'); // v4: EVEN band narrowed 8 -> 5
   };
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
@@ -663,8 +668,10 @@ function matchupHTML(g, rid) {
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
   // Legacy entries analyzed before duo synergy scoring don't have g.duoBonus — the (+N duo)
-  // tag is simply omitted for them rather than showing a bogus +0.
-  const teamGaText = (avgGa, bonus) => `avg GA ${avgGa ?? '–'}` + (bonus > 0 ? ` <span title="GA bonus for proven duo synergy">(+${bonus} duo)</span>` : '');
+  // tag is simply omitted for them rather than showing a bogus +0. "team GA" (not "avg GA") since
+  // v4: it's a top-weighted blend (65% team mean + 35% mean of the top 2 GAs), not a flat average
+  // — see weightedGA in lib/riot.mjs's fairness().
+  const teamGaText = (teamGa, bonus) => `<span title="65% team average + 35% average of the top 2 GAs">team GA</span> ${teamGa ?? '–'}` + (bonus > 0 ? ` <span title="GA bonus for proven duo synergy">(+${bonus} duo)</span>` : '');
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
@@ -686,7 +693,7 @@ function detailsHTML(g, key = 'x', rid) {
     if (!rows.length) return '';
     const won = (g.result === 'Victory') === (g.userTeam === t);
     return '<h4><span class="tm-' + t + '">' + t.toUpperCase() + '</span>' + (g.userTeam === t ? ' <span class="gold">YOU</span>' : '') + ' · ' + (won ? 'win' : 'loss') +
-      (g.teamGA && g.teamGA[t] ? ' · avg GA ' + g.teamGA[t] : '') + '</h4>' +
+      (g.teamGA && g.teamGA[t] ? ' · team GA ' + g.teamGA[t] : '') + '</h4>' +
       '<table class="details-table">' + detailsColgroup + '<tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>GA</th><th title="Wins-losses in their last 5 ranked games before this one">Form (last 5 before game)</th></tr>' +
       rows.map(p => {
         const isMe = p.n.replace('#', '-').toLowerCase() === meName;
