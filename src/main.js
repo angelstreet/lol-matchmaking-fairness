@@ -95,10 +95,10 @@ $('#clearKey').addEventListener('click', () => {
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Game-row date/duration is squeezed into a fixed column (see .col-date), so it needs to be as
 // short as possible: duration drops the seconds ("38m 24s" -> "38m", "12m (in progress)"
-// unaffected since it has no seconds token to strip), and the date drops the year and seconds
-// ("29/07 18:06" instead of a full locale string) — full precision isn't needed for a list of
-// recent games, and the row already carries a full title tooltip on the one-liner if more detail
-// is ever wanted elsewhere.
+// unaffected since it has no seconds token to strip). The date itself is shown as a short
+// relative timestamp (relativeDate) — "23m ago" reads at a glance in a way an absolute date never
+// does in a scan-a-list context — with the full absolute date/time (absoluteDate) moved to the
+// cell's title tooltip so precision isn't lost, just deprioritized.
 const shortDuration = d => {
   if (!d) return '';
   const m = /^(\d+)m/.exec(d);
@@ -106,7 +106,19 @@ const shortDuration = d => {
   const rest = d.slice(m[0].length).trim().replace(/^\d+s\s*/, '');
   return rest ? `${m[1]}m ${rest}` : `${m[1]}m`;
 };
-const shortDate = iso => {
+// "Xm ago" under an hour, "Xh ago" under a day, "Xd ago" beyond that (weeks read fine as e.g.
+// "12d ago" — no need for month/year granularity for a recent-games list).
+const relativeDate = iso => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const mins = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+};
+const absoluteDate = iso => {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d)) return '';
@@ -439,7 +451,7 @@ function renderRows(games, container, prefix, rid) {
         <span class="col-champ" title="${esc(g.champ)}">${esc(g.champ)}</span>
         <span class="col-kda">${esc(g.kda)}</span>
         <span class="col-badge">${badge}</span>
-        <span class="col-date dim">${esc(shortDuration(g.duration))} · ${esc(shortDate(g.when))}</span>
+        <span class="col-date dim" title="${esc(absoluteDate(g.when))}">${esc(shortDuration(g.duration))} · ${esc(relativeDate(g.when))}</span>
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
         <button class="mini" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
         ${reanalyzeBtn}
