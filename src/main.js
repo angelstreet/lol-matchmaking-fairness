@@ -150,13 +150,14 @@ function handleKeyError(err, sentKey) {
 // carry the old 'OK' / 'NOT OK' / 'BORDERLINE' values — map those to the same two states.
 const isFairVerdict = v => v === 'OK' || v === 'FAIR';
 // NOT FAIR is further qualified by `direction` (lib/riot.mjs's fairness().direction, persisted on
-// the entry) — which team the imbalance actually favors, relative to the analyzed profile.
-// 'against' -> red "THEIR FAVOR", 'favor' -> amber "YOUR FAVOR" (reusing the existing b-mid badge
-// color; the pair used to read "VS YOU" / "FOR YOU" but both were ambiguous), 'mixed' or missing
-// (older cached entries predate this field) -> plain red "NOT FAIR", same as before this existed,
-// so nothing breaks for old data — it just doesn't get the extra qualifier.
+// the entry) — which team the imbalance actually favors, relative to the analyzed profile. Used
+// to be spelled out in the badge text too ("NOT FAIR · THEIR FAVOR" / "· YOUR FAVOR"), but that
+// took too much space — now that against/favor already have distinct colors (red/amber), color
+// alone carries the direction and the label always just reads "NOT FAIR"; the wording lives only
+// in the tooltip (verdictTitle). 'mixed' or missing (older cached entries predate this field)
+// stays red with a "both sides" tooltip, same as before this existed.
 const verdictCls = (v, dir) => isFairVerdict(v) ? 'b-ok' : dir === 'favor' ? 'b-mid' : 'b-bad';
-const verdictLabel = (v, dir) => isFairVerdict(v) ? 'FAIR' : dir === 'against' ? 'NOT FAIR · THEIR FAVOR' : dir === 'favor' ? 'NOT FAIR · YOUR FAVOR' : 'NOT FAIR';
+const verdictLabel = (v) => isFairVerdict(v) ? 'FAIR' : 'NOT FAIR';
 const verdictTitle = (v, dir) => isFairVerdict(v) ? '' : dir === 'against' ? 'The lobby was stacked in the enemy team\'s favor' : dir === 'favor' ? "The lobby was stacked in your team's favor" : 'Imbalances on both sides';
 let CTX = { riotId: '', region: 'euw' };
 
