@@ -724,39 +724,60 @@ function chipsHTML(p, oppChamp) {
 // backtest averaged place 8.8/10, well worse than the old penalty implied.
 const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 7 : 0);
 
-// v4.1: standard phrase templates for a favored lane's tooltip, picking the dominant factor(s)
-// actually behind the GA gap instead of just repeating the raw number — e.g. "FEAR is OTP on
-// this champ" rather than "Blue side favored: +12 GA advantage". `w` is a rough priority used
-// only to rank candidate phrases against each other (judgment call, not a precise scale); up to
-// 2 phrases are kept, dominant first. Falls back to null (caller uses the old generic "+N GA
-// advantage" wording) when nothing crosses any of these thresholds — plenty of favored lanes are
-// just "somewhat ahead on raw rank/form" without tripping a specific flag.
-function laneFactorTooltip(b, r) {
+// v4.1.1: lane tooltips must explain the GA GAP, not just list flags — a trait shared by BOTH
+// laners (both OTP, both autofilled) explains nothing about why one side is ahead, so it's
+// dropped entirely rather than shown as if it mattered. Only genuine differentiators — present
+// on exactly one side, or a real comparative gap — are returned, dominant first. `side` ('b'/'r')
+// records which player each differentiator's text is actually about (the "winner" for
+// comparative factors, the flag-holder for one-sided ones), so laneEvenNote below can pick one
+// differentiator favoring each side for an "X offset by Y" pairing.
+function laneDifferentiators(b, r) {
+  if (!b || !r) return [];
   const short = p => (p?.n || '').split('#')[0];
-  const factors = [];
-  const addFor = (p, opp) => {
-    if (!p) return;
-    if (p.flags?.includes('otp-denied')) factors.push({ text: `${short(p)} denied their OTP pick`, w: 9 });
-    else if (p.flags?.includes('otp')) factors.push({ text: `${short(p)} is OTP on this champ`, w: 8 });
-    if (opp?.champ && p.champ && counterPenalty(p.champ, opp.champ) > 0) factors.push({ text: `${short(p)} is countered by ${opp.champ}`, w: 10 });
-    if (p.flags?.includes('smurf')) factors.push({ text: `${short(p)} looks like a smurf`, w: 9 });
-    if (p.flags?.includes('autofill')) factors.push({ text: `${short(p)} is autofilled`, w: 6 });
-    if (p.flags?.includes('first-time')) factors.push({ text: `${short(p)} first game on this champ`, w: 7 });
-    if (p.streak) {
-      const m = /^(\d+)([WL])$/.exec(p.streak);
-      if (m && +m[1] >= 3) factors.push({ text: m[2] === 'W' ? `${short(p)} on a ${m[1]}-win streak` : `${short(p)} lost ${m[1]} in a row`, w: 5 });
-    }
+  const out = [];
+
+  // One-sided flags: only a differentiator when EXACTLY one side has it — both (or neither)
+  // cancels out, since a shared trait can't be what's tipping THIS lane specifically. Named by
+  // whichever identity reads more naturally: champion for matchup-flavored facts (OTP, denied
+  // OTP — "is OTP ON THIS CHAMP" is fundamentally about the pick), player for account/session
+  // facts (autofill, first-time, smurf — these are about the PERSON, not the champion).
+  const oneSidedFlag = (flag, text, w) => {
+    const bHas = !!b.flags?.includes(flag), rHas = !!r.flags?.includes(flag);
+    if (bHas === rHas) return;
+    const p = bHas ? b : r;
+    out.push({ text: text(p), w, side: bHas ? 'b' : 'r' });
   };
-  addFor(b, r);
-  addFor(r, b);
-  // Comparative factors need both players — recent form (last-5 win rate, from the "3W-2L"
-  // style form string) and rank (parsed the same tier/division scale as lib/riot.mjs's TIERS).
-  const formPct = p => { const m = /^(\d+)W-(\d+)L$/.exec(p?.form || ''); if (!m) return null; const w = +m[1], l = +m[2]; return (w + l) ? w / (w + l) : null; };
-  const bForm = formPct(b), rForm = formPct(r);
-  if (bForm != null && rForm != null && Math.abs(bForm - rForm) >= 0.4) {
-    const better = bForm > rForm ? b : r;
-    factors.push({ text: `${short(better)} in much better recent form`, w: 4 });
+  oneSidedFlag('otp-denied', p => `${p.champ} denied their OTP`, 9);
+  oneSidedFlag('otp', p => `${p.champ} is OTP on this champ`, 8);
+  oneSidedFlag('smurf', p => `${short(p)} looks like a smurf`, 9);
+  oneSidedFlag('autofill', p => `${short(p)} is autofilled`, 6);
+  oneSidedFlag('first-time', p => `${short(p)} first game on this champ`, 7);
+
+  // Streak: one-sided only — a qualifying 3+ streak on BOTH sides is a genuine coincidence that
+  // cancels the same way, since neither streak explains the gap over the other. Player name — a
+  // streak is about the person's recent games, not tied to this specific champion.
+  const streakInfo = p => { const m = /^(\d+)([WL])$/.exec(p?.streak || ''); return m && +m[1] >= 3 ? { n: +m[1], win: m[2] === 'W' } : null; };
+  const bStreak = streakInfo(b), rStreak = streakInfo(r);
+  if (bStreak && !rStreak) out.push({ text: bStreak.win ? `${short(b)} on a ${bStreak.n}-win streak` : `${short(b)} lost ${bStreak.n} in a row`, w: 5, side: 'b' });
+  else if (rStreak && !bStreak) out.push({ text: rStreak.win ? `${short(r)} on a ${rStreak.n}-win streak` : `${short(r)} lost ${rStreak.n} in a row`, w: 5, side: 'r' });
+
+  // Countered: directional by construction (lib/counters.mjs isn't a symmetric matrix), names
+  // both champions.
+  if (b.champ && r.champ && counterPenalty(b.champ, r.champ) > 0) out.push({ text: `${b.champ} countered by ${r.champ}`, w: 12, side: 'b' });
+  if (b.champ && r.champ && counterPenalty(r.champ, b.champ) > 0) out.push({ text: `${r.champ} countered by ${b.champ}`, w: 12, side: 'r' });
+
+  // Form gap (last-5 win count, from the "3W-2L" form string) — the dominant differentiator
+  // whenever the win counts differ by >=2; smaller gaps are too close to call. Champion name
+  // (e.g. "Shaco in better form (4W-1L vs 2W-3L)") — validated against a real cached entry.
+  const wins = p => { const m = /^(\d+)W-(\d+)L$/.exec(p?.form || ''); return m ? +m[1] : null; };
+  const bWins = wins(b), rWins = wins(r);
+  if (bWins != null && rWins != null && Math.abs(bWins - rWins) >= 2) {
+    const better = bWins > rWins ? b : r, worse = better === b ? r : b;
+    out.push({ text: `${better.champ} in better form (${better.form} vs ${worse.form})`, w: 100, side: better === b ? 'b' : 'r' });
   }
+
+  // Rank gap: >=1 tier (4 division-units on this scale) or >=2 divisions within the same tier —
+  // both collapse to the same "unit gap >= 2" check. Player name — rank is account-level.
   const RANK_TIER = ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Emerald', 'Diamond', 'Master', 'Grandmaster', 'Challenger'];
   const RANK_DIV = { I: 3, II: 2, III: 1, IV: 0 };
   const rankValue = p => {
@@ -765,30 +786,61 @@ function laneFactorTooltip(b, r) {
     const tier = RANK_TIER.indexOf(tierWord);
     return tier === -1 ? null : tier * 4 + (RANK_DIV[div] ?? 0);
   };
+  const rankLabel = rk => rk ? rk.replace(/\s*\d+LP$/, '') : rk;
   const bRank = rankValue(b), rRank = rankValue(r);
-  if (bRank != null && rRank != null && Math.abs(bRank - rRank) >= 4) {
-    const better = bRank > rRank ? b : r;
-    factors.push({ text: `${short(better)} outranks the lane`, w: 3 });
+  if (bRank != null && rRank != null && Math.abs(bRank - rRank) >= 2) {
+    const better = bRank > rRank ? b : r, worse = better === b ? r : b;
+    out.push({ text: `${short(better)} ranks above (${rankLabel(better.rank)} vs ${rankLabel(worse.rank)})`, w: 7, side: better === b ? 'b' : 'r' });
   }
-  if (!factors.length) return null;
-  return [...factors].sort((x, y) => y.w - x.w).slice(0, 2).map(f => f.text).join('; ');
+
+  // cs/min gap — skipped for UTILITY (support farm isn't a meaningful lane-strength signal,
+  // same exclusion chipsHTML already applies to the cs/min chip). Player name — this game's
+  // farming execution, not an inherent champion trait.
+  if (b.pos !== 'UTILITY' && b.cspm != null && r.cspm != null && Math.abs(b.cspm - r.cspm) >= 2) {
+    const better = b.cspm > r.cspm ? b : r, worse = better === b ? r : b;
+    out.push({ text: `${short(better)} farms much better (${better.cspm} vs ${worse.cspm} cs)`, w: 6, side: better === b ? 'b' : 'r' });
+  }
+
+  return out.sort((x, y) => y.w - x.w);
 }
 
-// a and b are risk-adjusted GAs (see riskOf above) — callers no longer pass raw p.ga
-// directly, so a lane where one side is autofilled/first-timing never reads EVEN just because
-// the raw GAs happened to be close. riskNote, when given, is appended to the EVEN tooltip so the
-// adjustment is explained rather than silently changing the number. favorTooltip (v4.1) replaces
-// the generic "+N GA advantage" wording for a favored (non-EVEN) lane with the dominant factor
-// phrase(s) from laneFactorTooltip above, when one was found — riskNote isn't also appended
-// there since the factor phrases already cover autofill/first-time/countered directly.
+// Favored (non-EVEN) lane tooltip: top 1-2 differentiators, dominant first. Falls back to null
+// (caller uses the generic "+N GA advantage" wording) when nothing differentiates — plenty of
+// favored lanes are just "somewhat ahead on raw rank/form" without crossing any threshold here.
+function laneFactorTooltip(b, r) {
+  const diffs = laneDifferentiators(b, r);
+  return diffs.length ? diffs.slice(0, 2).map(d => d.text).join('; ') : null;
+}
+
+// EVEN lane tooltip: same shared-trait-cancels differentiator list, framed as an offset — one
+// factor favoring each side if both exist ("X offset by Y"), else just the lone factor found (a
+// small edge that existed but didn't swing the numeric outcome either way). Null when there's
+// nothing to say beyond the plain "Even matchup" wording.
+function laneEvenNote(b, r) {
+  const diffs = laneDifferentiators(b, r);
+  if (!diffs.length) return null;
+  const bSide = diffs.find(d => d.side === 'b');
+  const rSide = diffs.find(d => d.side === 'r');
+  if (bSide && rSide) return `${bSide.text} offset by ${rSide.text}`;
+  return diffs[0].text;
+}
+
+// a and b are risk-adjusted GAs (see riskOf above) — callers no longer pass raw p.ga directly,
+// so a lane where one side is autofilled/first-timing never reads EVEN just because the raw GAs
+// happened to be close. riskNote (v4.1.1: from laneEvenNote, an "X offset by Y" shared-trait-
+// cancels explanation) REPLACES the generic "Even matchup..." wording when present, same as
+// favorTooltip (from laneFactorTooltip) replaces the generic "+N GA advantage" wording for a
+// favored lane — both fall back to their own generic phrasing when nothing differentiates.
 function laneVerdict(a, b, riskNote, favorTooltip) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
-  const note = riskNote ? ` (${riskNote})` : '';
   // v4 (backtest-driven): EVEN band narrowed 8 -> 5 — a backtest of 17 cached analyses found
   // EVEN-band lanes were only right 27% of the time, the widest miss of any band. Favored is now
   // 6-18 (heavy stays >=19, unchanged).
-  if (ad <= 5) return `<span class="lv-even" title="Even matchup — pre-game GA gap of only ${ad} points${note}">EVEN</span>`;
+  if (ad <= 5) {
+    const evenTitle = riskNote || `Even matchup — pre-game GA gap of only ${ad} points`;
+    return `<span class="lv-even" title="${esc(evenTitle)}">EVEN</span>`;
+  }
   const heavy = ad > 18;
   const strength = heavy ? 'HEAVILY favored' : 'favored';
   const side = d > 0 ? 'blue' : 'red', sideLabel = side === 'blue' ? 'Blue' : 'Red';
@@ -827,14 +879,6 @@ function matchupHTML(g, rid) {
     const chips = badgeHTML(p) + chipsHTML(p, oppChamp);
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
-  // Verdict "category" (EVEN / BLUE-favored / RED-favored) for a pair of GA values, using the
-  // same EVEN threshold as laneVerdict — used below to detect when risk-adjustment flips or
-  // changes a lane's read compared to the raw (un-adjusted) GAs, so the tooltip can call it out.
-  const verdictCat = (a, b) => {
-    if (a == null || b == null) return null;
-    const d = a - b;
-    return Math.abs(d) <= 5 ? 'EVEN' : (d > 0 ? 'BLUE' : 'RED'); // v4: EVEN band narrowed 8 -> 5
-  };
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
     if (!b && !r) return '';
@@ -848,23 +892,12 @@ function matchupHTML(g, rid) {
     const rCounter = (b && r) ? counterPenalty(r.champ, b.champ) : 0;
     const bAdj = bRiskAdj != null ? bRiskAdj - bCounter : null;
     const rAdj = rRiskAdj != null ? rRiskAdj - rCounter : null;
-    // Note the adjustment in the tooltip only when it actually changed how the lane reads (raw
-    // vs adjusted verdict category differ) — otherwise a flagged player with a lane that was
-    // never close is left alone rather than adding noise to every row. Risk and counter notes
-    // are checked (and worded) independently since they're different phenomena.
-    const notes = [];
-    if ((bRisk > 0 || rRisk > 0) && verdictCat(b?.ga, r?.ga) !== verdictCat(bRiskAdj, rRiskAdj)) {
-      const who = [bRisk > 0 && 'blue', rRisk > 0 && 'red'].filter(Boolean).join(' & ');
-      notes.push(`includes autofill/first-time risk on the ${who} player${who.includes('&') ? 's' : ''}`);
-    }
-    if ((bCounter > 0 || rCounter > 0) && verdictCat(bRiskAdj, rRiskAdj) !== verdictCat(bAdj, rAdj)) {
-      if (bCounter > 0) notes.push(`${b.champ} is countered by ${r.champ}`);
-      if (rCounter > 0) notes.push(`${r.champ} is countered by ${b.champ}`);
-    }
-    const riskNote = notes.length ? notes.join('; ') : null;
     const fav = laneFavor(bAdj, rAdj);
-    // v4.1: only needed for a favored (non-EVEN) lane — laneVerdict falls back to the generic
-    // "+N GA advantage" wording when this comes back null (no specific factor detected).
+    // v4.1.1: both the EVEN offsetting note and the favored-lane tooltip come from the same
+    // shared-trait-cancels differentiator list (laneDifferentiators) — only whichever applies to
+    // this lane's actual read (EVEN vs favored) is computed. laneVerdict falls back to its own
+    // generic wording ("Even matchup..." / "+N GA advantage...") when either comes back null.
+    const riskNote = !fav ? laneEvenNote(b, r) : null;
     const favorTooltip = fav ? laneFactorTooltip(b, r) : null;
     const rowCls = (base, p, side) => {
       const c = base ? [base] : [];
