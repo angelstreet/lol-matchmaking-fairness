@@ -93,6 +93,28 @@ $('#clearKey').addEventListener('click', () => {
 });
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// op.gg profile URL for a Riot ID ("Name#TAG" -> https://op.gg/lol/summoners/{region}/Name-TAG).
+// The # becomes a literal -, and the whole Name-TAG segment is encodeURIComponent'd so spaces/
+// unicode in the name are handled — encodeURIComponent leaves '-' alone (it's unreserved), which
+// is exactly the literal separator op.gg's URL scheme expects.
+function opggUrl(riotId, region) {
+  if (!riotId) return null;
+  const [name, tag] = String(riotId).split('#');
+  if (!name) return null;
+  const seg = encodeURIComponent(tag ? `${name}-${tag}` : name);
+  return `https://op.gg/lol/summoners/${(region || CTX.region || 'euw').toLowerCase()}/${seg}`;
+}
+
+// Renders a player Riot ID as a link to their op.gg profile (new tab), keeping the exact same
+// esc()'d text used everywhere names already render. Falls back to plain escaped text if the
+// name is missing/unparseable rather than emitting a dead link.
+function nameLink(riotId, region) {
+  const label = esc(riotId);
+  const url = opggUrl(riotId, region);
+  if (!url) return label;
+  return `<a class="plink" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
 // Game-row date/duration is squeezed into a fixed column (see .col-date), so it needs to be as
 // short as possible: duration drops the seconds ("38m 24s" -> "38m", "12m (in progress)"
 // unaffected since it has no seconds token to strip). The date itself is shown as a short
@@ -876,7 +898,7 @@ function matchupHTML(g, rid) {
   const cellName = (p, oppChamp) => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
-    const name = `<span class="pname">${esc(p.n)}</span>`;
+    const name = `<span class="pname">${nameLink(p.n)}</span>`;
     const kda = p.kda ? `<span class="dim">${esc(p.kda)}</span>` : '';
     const ga = `<b>GA ${p.ga ?? '–'}</b>`;
     const main = [place, name, kda, ga].filter(Boolean).join(' ');
@@ -953,7 +975,7 @@ function detailsHTML(g, key = 'x', rid) {
         const chips = chipsHTML(p);
         // MVP/ACE and the flag/duo/streak/cspm chips all live in the Player cell's chip group —
         // keeping the other columns plain text is what makes the fixed-width alignment hold up.
-        const nameCell = `<span class="pcell"><span class="pname">${esc(p.n)}</span>${badge}${chips}</span>`;
+        const nameCell = `<span class="pcell"><span class="pname">${nameLink(p.n)}</span>${badge}${chips}</span>`;
         // Season winrate appended dim, only once there's a real sample (20+ games) behind it.
         const rankCell = esc(p.rank) + (p.seasonGames >= 20 ? ` <span class="dim">· ${p.wr}% (${p.seasonGames}g)</span>` : '');
         return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + nameCell + '</td><td>' + rankCell + '</td><td>' + esc(p.pos) +
