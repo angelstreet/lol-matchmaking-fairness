@@ -56,14 +56,15 @@
 
   <h2>Lane verdicts</h2>
   <div class="card">
-    <code>adjusted GA = GA − 5 autofill − 7 first-time − 8 countered</code>
+    <code>adjusted GA = GA − 5 autofill − 10 first-time − 8 countered + 3 duo'd</code>
     <div class="thresh"><span class="chip ok">EVEN ≤5</span> · <span class="chip mid">favored 6–18</span> · <span class="chip bad">heavy &gt;18</span></div>
+    <div class="thresh">The +3 duo bonus applies to whichever lane each half of a duo pair is playing — separate from (and on top of) the team-level duo bonus below.</div>
   </div>
 
   <h2>NOT FAIR triggers (below), but net decides</h2>
   <div class="card">
     <ul>
-      <li>Team GA gap ≥12 (incl. duo bonus, cap 8)</li>
+      <li>Team GA gap ≥12 (incl. duo bonus, cap 20)</li>
       <li>Tier spread inside a team ≥2.5</li>
       <li>Risk asymmetry (autofill/first-time) ≥8</li>
       <li>2+ lanes heavily favored one side</li>
@@ -72,6 +73,7 @@
       <li>2+ first-time champs on your team</li>
     </ul>
     <div class="thresh">Team GA = 65% team avg + 35% avg of top 2 GAs (not a flat average).</div>
+    <div class="thresh">Duo bonus per pair: 8 with a winning joint record together, 6 mixed, 4 losing. A team with 2+ duos gets its summed bonus amplified ×1.25 (two coordinating pairs compound, not just add), capped at 20.</div>
     <div class="thresh">A trigger above only becomes NOT FAIR if net (lane deltas + team GA gap) stays ≥10 GA one way — smaller nets mean the factors offset each other, so it's still FAIR (hover the badge for what offset what).</div>
     <div class="thresh">NOT FAIR is <span class="chip bad">red</span> when stacked against you, <span class="chip mid">amber</span> when in your favor — hover for detail. No more "mixed" — every verdict points a clear direction.</div>
   </div>

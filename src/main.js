@@ -747,8 +747,14 @@ function chipsHTML(p, oppChamp) {
 // riskOf in lib/riot.mjs so a lane with an autofilled/first-timing player never reads EVEN
 // against a clean opponent just because the raw GAs happened to land close together. v4
 // (backtest-driven): first-time bumped 5 -> 7 (autofill unchanged at 5) — first-timers in the
-// backtest averaged place 8.8/10, well worse than the old penalty implied.
-const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 7 : 0);
+// backtest averaged place 8.8/10, well worse than the old penalty implied. v4.2: bumped again,
+// 7 -> 10 (see lib/riot.mjs's riskOf for the real-game trigger).
+const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 10 : 0);
+
+// v4.2: mirrors lib/riot.mjs's LANE_DUO_BONUS — a duo'd player's lane reads a bit stronger than
+// their solo GA alone, since they can coordinate with a teammate elsewhere on the map.
+const LANE_DUO_BONUS = 3;
+const duoAdjOf = p => (p?.duo ? LANE_DUO_BONUS : 0);
 
 // v4.1.1: lane tooltips must explain the GA GAP, not just list flags — a trait shared by BOTH
 // laners (both OTP, both autofilled) explains nothing about why one side is ahead, so it's
@@ -916,8 +922,8 @@ function matchupHTML(g, rid) {
     // just because the raw GAs happened to be close.
     const bCounter = (b && r) ? counterPenalty(b.champ, r.champ) : 0;
     const rCounter = (b && r) ? counterPenalty(r.champ, b.champ) : 0;
-    const bAdj = bRiskAdj != null ? bRiskAdj - bCounter : null;
-    const rAdj = rRiskAdj != null ? rRiskAdj - rCounter : null;
+    const bAdj = bRiskAdj != null ? bRiskAdj - bCounter + duoAdjOf(b) : null;
+    const rAdj = rRiskAdj != null ? rRiskAdj - rCounter + duoAdjOf(r) : null;
     const fav = laneFavor(bAdj, rAdj);
     // v4.1.1: both the EVEN offsetting note and the favored-lane tooltip come from the same
     // shared-trait-cancels differentiator list (laneDifferentiators) — only whichever applies to
