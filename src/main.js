@@ -681,8 +681,12 @@ function chipsHTML(p, oppChamp) {
   // first-time, rusty) are amber, same family as tilt; streaks are green (win) / red (loss).
   if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role', 'flag-autofill']);
   if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion', 'flag-first-time']);
-  if (p.flags?.includes('otp')) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery', 'flag-otp']);
-  if (p.flags?.includes('otp-denied')) c.push(['OTP denied', `One-trick on ${p.deniedChamp} but not playing it this game`, 'flag-otp-denied']);
+  // otp and otp-denied are mutually exclusive at the engine level (see gaScore in lib/riot.mjs),
+  // but a legacy cached analysis from before that fix can still carry both — defensively prefer
+  // otp-denied (the risk signal) if a stale entry ever has both set.
+  const isDenied = p.flags?.includes('otp-denied');
+  if (p.flags?.includes('otp') && !isDenied) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery', 'flag-otp']);
+  if (isDenied) c.push(['OTP denied', `One-trick on ${p.deniedChamp} but not playing it this game`, 'flag-otp-denied']);
   if (oppChamp && counterPenalty(p.champ, oppChamp) > 0) c.push(['countered', `${p.champ} is countered by ${oppChamp}`, 'flag-countered']);
   // Session-history warning flags — computed from the player's prior games / league entry,
   // shown compactly; each is rare enough that a plain chip (no icon) reads fine.
