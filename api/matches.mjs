@@ -56,4 +56,4 @@ export default async function handler(req, res) {
   }
 }
 
-const pick = a => ({ result: a.result, champ: a.user?.champ, kda: a.user?.kda, when: a.when, duration: a.duration, matchmaking: a.matchmaking, direction: a.direction, oneLiner: a.oneLiner });
+const pick = a => ({ result: a.result, champ: a.user?.champ, kda: a.user?.kda, when: a.when, duration: a.duration, matchmaking: a.matchmaking, direction: a.direction, verdictTooltip: a.verdictTooltip, oneLiner: a.oneLiner });

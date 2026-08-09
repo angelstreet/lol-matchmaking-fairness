@@ -23,7 +23,7 @@ export default async function handler(req, res) {
         matchId: a.matchId, cached: true, live: !!a.live,
         result: a.result, champ: a.user?.champ, kda: a.user?.kda,
         when: a.when, duration: a.duration,
-        matchmaking: a.matchmaking, direction: a.direction, oneLiner: a.oneLiner,
+        matchmaking: a.matchmaking, direction: a.direction, verdictTooltip: a.verdictTooltip, oneLiner: a.oneLiner,
       })),
     });
   } catch (e) {

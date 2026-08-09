@@ -154,11 +154,22 @@ const isFairVerdict = v => v === 'OK' || v === 'FAIR';
 // to be spelled out in the badge text too ("NOT FAIR · THEIR FAVOR" / "· YOUR FAVOR"), but that
 // took too much space — now that against/favor already have distinct colors (red/amber), color
 // alone carries the direction and the label always just reads "NOT FAIR"; the wording lives only
-// in the tooltip (verdictTitle). 'mixed' or missing (older cached entries predate this field)
-// stays red with a "both sides" tooltip, same as before this existed.
+// in the tooltip (verdictTitle). v4.1: the engine no longer ever emits 'mixed' (every verdict is
+// now FAIR or a clearly-directed NOT FAIR — see fairness()'s net-direction logic) — 'mixed' can
+// only appear on a legacy cached entry analyzed before that change, and is treated as red/needs
+// re-analysis rather than its own real category.
 const verdictCls = (v, dir) => isFairVerdict(v) ? 'b-ok' : dir === 'favor' ? 'b-mid' : 'b-bad';
 const verdictLabel = (v) => isFairVerdict(v) ? 'FAIR' : 'NOT FAIR';
-const verdictTitle = (v, dir) => isFairVerdict(v) ? '' : dir === 'against' ? 'The lobby was stacked in the enemy team\'s favor' : dir === 'favor' ? "The lobby was stacked in your team's favor" : 'Imbalances on both sides';
+// tooltip is the engine's verdictTooltip — the actual fired reasons (NOT FAIR) or the offsetting
+// explanation (FAIR-but-imbalanced), terse, straight from lib/riot.mjs. Legacy entries analyzed
+// before that field existed (or that still carry the retired 'mixed' direction) fall back to a
+// generic message pointing at re-analysis instead of guessing at content that isn't stored.
+const verdictTitle = (v, dir, tooltip) => {
+  if (dir === 'mixed') return 'Re-analyze for updated verdict';
+  if (tooltip) return tooltip;
+  if (isFairVerdict(v)) return '';
+  return dir === 'against' ? "The lobby was stacked in the enemy team's favor" : dir === 'favor' ? "The lobby was stacked in your team's favor" : 'Re-analyze for updated verdict';
+};
 let CTX = { riotId: '', region: 'euw' };
 
 // ---- bookmarks: localStorage always; synced to the Clerk account when signed in ----
@@ -244,7 +255,7 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
   if (!cached || cached.riotId !== riotId || !Array.isArray(cached.games)) return;
   const idx = cached.games.findIndex(g => g.matchId === matchId);
   if (idx === -1) return;
-  cached.games[idx] = { ...cached.games[idx], cached: true, matchmaking: entry.matchmaking, direction: entry.direction, oneLiner: entry.oneLiner };
+  cached.games[idx] = { ...cached.games[idx], cached: true, matchmaking: entry.matchmaking, direction: entry.direction, verdictTooltip: entry.verdictTooltip, oneLiner: entry.oneLiner };
   localStorage.setItem('lastSearch', JSON.stringify(cached));
 }
 
@@ -509,7 +520,7 @@ function renderRows(games, container, prefix, rid) {
   container.innerHTML = games.map((g, i) => {
     if (g.remake) return ''; // server no longer sends remakes; guard is only for legacy lastSearch cache
     const key = prefix + i;
-    const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking, g.direction)}" id="b${key}" title="${esc(verdictTitle(g.matchmaking, g.direction))}">${verdictLabel(g.matchmaking, g.direction)}</span>` : `<span id="b${key}"></span>`;
+    const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking, g.direction)}" id="b${key}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>` : `<span id="b${key}"></span>`;
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
     // A live-snapshot entry (g.live — only ever set on rows coming through /api/history; the
     // search-list path via /api/matches never marks a cached row live, it falls through to the
@@ -594,7 +605,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
     // View, a re-analyze must overwrite the stale content with the fresh entry, not skip it.
     document.getElementById('d' + i).innerHTML = detailsHTML(g, i, rid);
     const badgeEl = document.getElementById('b' + i);
-    if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking, g.direction); badgeEl.textContent = verdictLabel(g.matchmaking, g.direction); badgeEl.title = verdictTitle(g.matchmaking, g.direction); }
+    if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking, g.direction); badgeEl.textContent = verdictLabel(g.matchmaking, g.direction); badgeEl.title = verdictTitle(g.matchmaking, g.direction, g.verdictTooltip); }
     const oneEl = document.getElementById('o' + i);
     if (oneEl) { oneEl.textContent = g.oneLiner || ''; oneEl.title = g.oneLiner || ''; }
     if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
@@ -713,11 +724,64 @@ function chipsHTML(p, oppChamp) {
 // backtest averaged place 8.8/10, well worse than the old penalty implied.
 const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 7 : 0);
 
+// v4.1: standard phrase templates for a favored lane's tooltip, picking the dominant factor(s)
+// actually behind the GA gap instead of just repeating the raw number — e.g. "FEAR is OTP on
+// this champ" rather than "Blue side favored: +12 GA advantage". `w` is a rough priority used
+// only to rank candidate phrases against each other (judgment call, not a precise scale); up to
+// 2 phrases are kept, dominant first. Falls back to null (caller uses the old generic "+N GA
+// advantage" wording) when nothing crosses any of these thresholds — plenty of favored lanes are
+// just "somewhat ahead on raw rank/form" without tripping a specific flag.
+function laneFactorTooltip(b, r) {
+  const short = p => (p?.n || '').split('#')[0];
+  const factors = [];
+  const addFor = (p, opp) => {
+    if (!p) return;
+    if (p.flags?.includes('otp-denied')) factors.push({ text: `${short(p)} denied their OTP pick`, w: 9 });
+    else if (p.flags?.includes('otp')) factors.push({ text: `${short(p)} is OTP on this champ`, w: 8 });
+    if (opp?.champ && p.champ && counterPenalty(p.champ, opp.champ) > 0) factors.push({ text: `${short(p)} is countered by ${opp.champ}`, w: 10 });
+    if (p.flags?.includes('smurf')) factors.push({ text: `${short(p)} looks like a smurf`, w: 9 });
+    if (p.flags?.includes('autofill')) factors.push({ text: `${short(p)} is autofilled`, w: 6 });
+    if (p.flags?.includes('first-time')) factors.push({ text: `${short(p)} first game on this champ`, w: 7 });
+    if (p.streak) {
+      const m = /^(\d+)([WL])$/.exec(p.streak);
+      if (m && +m[1] >= 3) factors.push({ text: m[2] === 'W' ? `${short(p)} on a ${m[1]}-win streak` : `${short(p)} lost ${m[1]} in a row`, w: 5 });
+    }
+  };
+  addFor(b, r);
+  addFor(r, b);
+  // Comparative factors need both players — recent form (last-5 win rate, from the "3W-2L"
+  // style form string) and rank (parsed the same tier/division scale as lib/riot.mjs's TIERS).
+  const formPct = p => { const m = /^(\d+)W-(\d+)L$/.exec(p?.form || ''); if (!m) return null; const w = +m[1], l = +m[2]; return (w + l) ? w / (w + l) : null; };
+  const bForm = formPct(b), rForm = formPct(r);
+  if (bForm != null && rForm != null && Math.abs(bForm - rForm) >= 0.4) {
+    const better = bForm > rForm ? b : r;
+    factors.push({ text: `${short(better)} in much better recent form`, w: 4 });
+  }
+  const RANK_TIER = ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Emerald', 'Diamond', 'Master', 'Grandmaster', 'Challenger'];
+  const RANK_DIV = { I: 3, II: 2, III: 1, IV: 0 };
+  const rankValue = p => {
+    if (!p?.rank || p.rank === 'Unranked') return null;
+    const [tierWord, div] = p.rank.split(' ');
+    const tier = RANK_TIER.indexOf(tierWord);
+    return tier === -1 ? null : tier * 4 + (RANK_DIV[div] ?? 0);
+  };
+  const bRank = rankValue(b), rRank = rankValue(r);
+  if (bRank != null && rRank != null && Math.abs(bRank - rRank) >= 4) {
+    const better = bRank > rRank ? b : r;
+    factors.push({ text: `${short(better)} outranks the lane`, w: 3 });
+  }
+  if (!factors.length) return null;
+  return [...factors].sort((x, y) => y.w - x.w).slice(0, 2).map(f => f.text).join('; ');
+}
+
 // a and b are risk-adjusted GAs (see riskOf above) — callers no longer pass raw p.ga
 // directly, so a lane where one side is autofilled/first-timing never reads EVEN just because
-// the raw GAs happened to be close. riskNote, when given, is appended to the tooltip so the
-// adjustment is explained rather than silently changing the number.
-function laneVerdict(a, b, riskNote) {
+// the raw GAs happened to be close. riskNote, when given, is appended to the EVEN tooltip so the
+// adjustment is explained rather than silently changing the number. favorTooltip (v4.1) replaces
+// the generic "+N GA advantage" wording for a favored (non-EVEN) lane with the dominant factor
+// phrase(s) from laneFactorTooltip above, when one was found — riskNote isn't also appended
+// there since the factor phrases already cover autofill/first-time/countered directly.
+function laneVerdict(a, b, riskNote, favorTooltip) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
   const note = riskNote ? ` (${riskNote})` : '';
@@ -728,7 +792,8 @@ function laneVerdict(a, b, riskNote) {
   const heavy = ad > 18;
   const strength = heavy ? 'HEAVILY favored' : 'favored';
   const side = d > 0 ? 'blue' : 'red', sideLabel = side === 'blue' ? 'Blue' : 'Red';
-  return `<span class="lv-${side}" title="${sideLabel} side ${strength}: +${ad} GA advantage before the game started${note}">${side.toUpperCase()} +${ad}</span>`;
+  const title = favorTooltip || `${sideLabel} side ${strength}: +${ad} GA advantage before the game started`;
+  return `<span class="lv-${side}" title="${esc(title)}">${side.toUpperCase()} +${ad}</span>`;
 }
 
 // Which side (if any) a lane is favored toward, for tinting that side's cells — kept separate
@@ -798,6 +863,9 @@ function matchupHTML(g, rid) {
     }
     const riskNote = notes.length ? notes.join('; ') : null;
     const fav = laneFavor(bAdj, rAdj);
+    // v4.1: only needed for a favored (non-EVEN) lane — laneVerdict falls back to the generic
+    // "+N GA advantage" wording when this comes back null (no specific factor detected).
+    const favorTooltip = fav ? laneFactorTooltip(b, r) : null;
     const rowCls = (base, p, side) => {
       const c = base ? [base] : [];
       if (fav) { if (fav.side === side) c.push(`fav-${side}`); }
@@ -809,7 +877,7 @@ function matchupHTML(g, rid) {
       if (!p) return '<span class="dim">—</span>';
       return `<span class="champ">${esc(p.champ)}</span>`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
@@ -821,7 +889,7 @@ function matchupHTML(g, rid) {
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction))}">${verdictLabel(g.matchmaking, g.direction)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
   </table>`;
 }
 
