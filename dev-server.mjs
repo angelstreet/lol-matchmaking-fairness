@@ -3,6 +3,14 @@
 // Env needed: RIOT_API_KEY (optional if BYOK), TURSO_DATABASE_URL, TURSO_AUTH_TOKEN.
 
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+// Load .env (gitignored) so RIOT_API_KEY etc. don't need to be exported by hand.
+try {
+  for (const line of readFileSync(new URL('./.env', import.meta.url), 'utf8').split('\n')) {
+    const m = /^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/.exec(line);
+    if (m && !line.trimStart().startsWith('#') && !process.env[m[1]]) process.env[m[1]] = m[2];
+  }
+} catch { /* no .env — fine, env vars may be set externally */ }
 import matches from './api/matches.mjs';
 import analyze from './api/analyze.mjs';
 import history from './api/history.mjs';
