@@ -751,8 +751,11 @@ function chipsHTML(p, oppChamp) {
   if (!p) return '';
   const c = [];
   // Every chip gets a semantic color — no grey/default chips. Neutral/informational facts
-  // (DUO, OTP) are blue; risk signals that hurt confidence in the GA number (autofill,
-  // first-time, rusty) are amber, same family as tilt; streaks are green (win) / red (loss).
+  // (DUO, OTP) are blue; risk signals that hurt confidence in the GA number (autofill, rusty) are
+  // amber, same family as tilt. v4.5: first-time moved into the informational/no-score-impact
+  // group alongside tilt — see riskOf in lib/riot.mjs for why (fresh evidence at this elo: a
+  // first-time pick isn't a handicap, it reads more like a lure). Amber styling stays; the
+  // tooltip below says so explicitly. Streaks are green (win) / red (loss).
   // v4.3: autofill/first-time/tilt are noise on a detected smurf — a fresh account's thin role
   // and champ history says nothing about a player who's actually experienced, so those chips are
   // suppressed for smurf-flagged players at the source (lib/riot.mjs's flags array). Re-checked
@@ -760,7 +763,7 @@ function chipsHTML(p, oppChamp) {
   // alongside 'smurf'.
   const isSmurf = p.flags?.includes('smurf');
   if (p.flags?.includes('autofill') && !isSmurf) c.push(['autofill', 'Playing outside their usual role', 'flag-autofill']);
-  if (p.flags?.includes('first-time') && !isSmurf) c.push(['first-time', 'No recent games and low mastery on this champion', 'flag-first-time']);
+  if (p.flags?.includes('first-time') && !isSmurf) c.push(['first-time', 'No recent games and low mastery on this champion — informational only, no scoring impact', 'flag-first-time']);
   // otp and otp-denied are mutually exclusive at the engine level (see gaScore in lib/riot.mjs),
   // but a legacy cached analysis from before that fix can still carry both — defensively prefer
   // otp-denied (the risk signal) if a stale entry ever has both set.
@@ -806,16 +809,23 @@ function chipsHTML(p, oppChamp) {
   return c.map(([l, t, cls]) => `<span class="chip${cls ? ' ' + cls : ''}" title="${esc(t)}">${l}</span>`).join('');
 }
 
-// Off-role (autofill) and unfamiliar-champion (first-time) picks are risk, not skill — mirrors
-// riskOf in lib/riot.mjs so a lane with an autofilled/first-timing player never reads EVEN
-// against a clean opponent just because the raw GAs happened to land close together. v4
-// (backtest-driven): first-time bumped 5 -> 7 (autofill unchanged at 5) — first-timers in the
-// backtest averaged place 8.8/10, well worse than the old penalty implied. v4.2: bumped again,
-// 7 -> 10 (see lib/riot.mjs's riskOf for the real-game trigger). v4.3: smurf-flagged players are
-// exempt from both — a fresh account's thin role/champ history says nothing about a player who
-// is demonstrably experienced; counter penalties (handled separately via counterPenalty) still
-// apply since those are about the matchup, not the account.
-const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 10 : 0);
+// Off-role (autofill) picks are risk, not skill — mirrors riskOf in lib/riot.mjs so a lane with
+// an autofilled player never reads EVEN against a clean opponent just because the raw GAs
+// happened to land close together. v4.3: smurf-flagged players are exempt — a fresh account's
+// thin role history says nothing about a player who is demonstrably experienced; counter
+// penalties (handled separately via roleCounterPenalty below) still apply since those are about
+// the matchup, not the account. v4.5: the first-time penalty (was 5 -> 7 -> 10 across v4/v4.2) is
+// removed entirely — see lib/riot.mjs's riskOf for the real-game evidence and the elo-contextual
+// caveat. first-time is now purely informational (see chipsHTML above), no longer part of risk.
+const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autofill') ? 5 : 0);
+
+// v4.5: mirrors lib/riot.mjs's role-weighted counter penalty — a countered solo lane (top/mid)
+// has no one to bail them out; jungle/bot/support have a partner who can offset a bad matchup, so
+// the same "known bad matchup" costs less there. The "countered" CHIP (chipsHTML above,
+// laneDifferentiators below) stays a flat yes/no regardless of role or size — only the
+// GA-affecting lane math (matchupHTML's bAdj/rAdj) uses this role-scaled version.
+const COUNTER_ROLE_PENALTY = { TOP: 8, MIDDLE: 8, JUNGLE: 4, BOTTOM: 3, UTILITY: 3 };
+const roleCounterPenalty = (champ, oppChamp, pos) => counterPenalty(champ, oppChamp) > 0 ? (COUNTER_ROLE_PENALTY[pos] ?? 8) : 0;
 
 // v4.2: mirrors lib/riot.mjs's duoLaneBonusMap — a duo'd player's lane reads a bit stronger than
 // their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.4: a
@@ -847,7 +857,7 @@ function laneDifferentiators(b, r) {
   // cancels out, since a shared trait can't be what's tipping THIS lane specifically. Named by
   // whichever identity reads more naturally: champion for matchup-flavored facts (OTP, denied
   // OTP — "is OTP ON THIS CHAMP" is fundamentally about the pick), player for account/session
-  // facts (autofill, first-time, smurf — these are about the PERSON, not the champion).
+  // facts (autofill, smurf — these are about the PERSON, not the champion).
   const oneSidedFlag = (flag, text, w) => {
     const bHas = !!b.flags?.includes(flag), rHas = !!r.flags?.includes(flag);
     if (bHas === rHas) return;
@@ -858,7 +868,9 @@ function laneDifferentiators(b, r) {
   oneSidedFlag('otp', p => `${p.champ} is OTP on this champ`, 8);
   oneSidedFlag('smurf', p => `${short(p)} looks like a smurf`, 9);
   oneSidedFlag('autofill', p => `${short(p)} is autofilled`, 6);
-  oneSidedFlag('first-time', p => `${short(p)} first game on this champ`, 7);
+  // v4.5: first-time dropped from the differentiator list — it no longer costs any GA (see
+  // riskOf in lib/riot.mjs), so citing it here would misleadingly imply it explains a gap it no
+  // longer has any part in creating.
 
   // Streak: one-sided only — a qualifying 3+ streak on BOTH sides is a genuine coincidence that
   // cancels the same way, since neither streak explains the gap over the other. Player name — a
@@ -993,10 +1005,10 @@ function matchupHTML(g, rid) {
     const bRiskAdj = b?.ga != null ? b.ga - bRisk : null;
     const rRiskAdj = r?.ga != null ? r.ga - rRisk : null;
     // Known lane counters (lib/counters.mjs, shared with the engine's fairness() lane rules) are
-    // subtracted the same way as autofill/first-time risk — a countered lane never reads EVEN
-    // just because the raw GAs happened to be close.
-    const bCounter = (b && r) ? counterPenalty(b.champ, r.champ) : 0;
-    const rCounter = (b && r) ? counterPenalty(r.champ, b.champ) : 0;
+    // subtracted the same way as autofill risk — a countered lane never reads EVEN just because
+    // the raw GAs happened to be close. v4.5: role-weighted (roleCounterPenalty above), not flat.
+    const bCounter = (b && r) ? roleCounterPenalty(b.champ, r.champ, role) : 0;
+    const rCounter = (b && r) ? roleCounterPenalty(r.champ, b.champ, role) : 0;
     const bAdj = bRiskAdj != null ? bRiskAdj - bCounter + duoAdjOf(b, g.players) : null;
     const rAdj = rRiskAdj != null ? rRiskAdj - rCounter + duoAdjOf(r, g.players) : null;
     const fav = laneFavor(bAdj, rAdj);
