@@ -445,7 +445,10 @@ $('#f').addEventListener('submit', async e => {
     localStorage.setItem('riotId', CTX.riotId);
     $('#list').innerHTML = ''; // only clear the previous list once the new one is ready to replace it
     renderRows(data.games, $('#list'), 'm', CTX.riotId);
-    $('#status').textContent = data.games.length ? 'Pick a game to analyze — ✓ games are already analyzed (free & instant).' : 'No ranked solo games found.';
+    // The rows speak for themselves (✓ badges already mark analyzed games) — no instructional
+    // sentence needed once there's a list to look at; only the empty-results case still needs a
+    // status message, since there's nothing on screen to explain otherwise.
+    $('#status').textContent = data.games.length ? '' : 'No ranked solo games found.';
     localStorage.setItem('lastSearch', JSON.stringify({ riotId: CTX.riotId, region: CTX.region, games: data.games, ts: Date.now() }));
     loadHistory(0);
   } catch (err) { if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message); }
