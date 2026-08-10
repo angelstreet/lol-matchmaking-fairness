@@ -19,7 +19,7 @@ document.querySelector('#app').innerHTML = `
     <button type="button" id="liveBtn" class="live">🔴 Live game</button>
     <div class="keyrow">
       <div class="keywrap">
-        <input id="apiKey" name="riot-api-key" placeholder="Your Riot API key (optional)" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore>
+        <input id="apiKey" name="riot-api-key" placeholder="Your Riot API key (optional)" type="text" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore>
         <span id="keyValid" title=""></span>
         <button type="button" id="clearKey" title="Clear saved key">✕</button>
       </div>

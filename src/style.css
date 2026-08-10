@@ -24,7 +24,12 @@ input, select { background:var(--card); border:1px solid var(--line); color:var(
 .combo { position:relative; flex:1; min-width:220px; display:flex; }
 input#riotId { flex:1; min-width:200px; width:100%; padding-right:40px; }
 .keywrap { position:relative; display:inline-flex; }
-input#apiKey { width:270px; padding-right:46px; transition:border-color .3s ease; }
+/* type="text" (not "password") so Chrome's password manager doesn't treat this as a login field
+   and offer to save/generate a password for it — Chrome ignores autocomplete/data-*-ignore hints
+   on password-typed inputs entirely. Masked visually instead via -webkit-text-security, which
+   covers Chromium + Safari; Firefox has no equivalent and will show the key in plain text there
+   (acceptable tradeoff for an API key field, not a real password). */
+input#apiKey { width:270px; padding-right:46px; transition:border-color .3s ease; -webkit-text-security:disc; }
 input#apiKey.key-updated { border-color:var(--ok); }
 /* Inline validity indicator (see the debounced /api/keycheck call in main.js) — sits between the
    input's text and the clear (✕) button, so padding-right on the input above was widened to make
