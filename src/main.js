@@ -714,8 +714,14 @@ function chipsHTML(p, oppChamp) {
   // Every chip gets a semantic color — no grey/default chips. Neutral/informational facts
   // (DUO, OTP) are blue; risk signals that hurt confidence in the GA number (autofill,
   // first-time, rusty) are amber, same family as tilt; streaks are green (win) / red (loss).
-  if (p.flags?.includes('autofill')) c.push(['autofill', 'Playing outside their usual role', 'flag-autofill']);
-  if (p.flags?.includes('first-time')) c.push(['first-time', 'No recent games and low mastery on this champion', 'flag-first-time']);
+  // v4.3: autofill/first-time/tilt are noise on a detected smurf — a fresh account's thin role
+  // and champ history says nothing about a player who's actually experienced, so those chips are
+  // suppressed for smurf-flagged players at the source (lib/riot.mjs's flags array). Re-checked
+  // here too, defensively, in case a legacy cached entry from before that fix still carries them
+  // alongside 'smurf'.
+  const isSmurf = p.flags?.includes('smurf');
+  if (p.flags?.includes('autofill') && !isSmurf) c.push(['autofill', 'Playing outside their usual role', 'flag-autofill']);
+  if (p.flags?.includes('first-time') && !isSmurf) c.push(['first-time', 'No recent games and low mastery on this champion', 'flag-first-time']);
   // otp and otp-denied are mutually exclusive at the engine level (see gaScore in lib/riot.mjs),
   // but a legacy cached analysis from before that fix can still carry both — defensively prefer
   // otp-denied (the risk signal) if a stale entry ever has both set.
@@ -725,7 +731,7 @@ function chipsHTML(p, oppChamp) {
   if (oppChamp && counterPenalty(p.champ, oppChamp) > 0) c.push(['countered', `${p.champ} is countered by ${oppChamp}`, 'flag-countered']);
   // Session-history warning flags — computed from the player's prior games / league entry,
   // shown compactly; each is rare enough that a plain chip (no icon) reads fine.
-  if (p.flags?.includes('tilt')) c.push(['tilt?', '3+ games in the last ~3h with at least 2 losses — possible session tilt', 'flag-tilt']);
+  if (p.flags?.includes('tilt') && !isSmurf) c.push(['tilt?', '3+ games in the last ~3h with at least 2 losses — possible session tilt', 'flag-tilt']);
   if (p.flags?.includes('rusty')) c.push(['rusty', "Hasn't played this queue in 14+ days — recent form may be less predictive", 'flag-rusty']);
   if (p.flags?.includes('smurf')) c.push(['SMURF?', 'Low account level with a strong season winrate or recent KDA — likely outclasses their displayed rank', 'flag-smurf']);
   if (p.flags?.includes('afk-risk')) c.push(['AFK risk', 'A recent game ended in an early surrender for this player — possible AFK/DC pattern', 'flag-afk']);
@@ -761,8 +767,11 @@ function chipsHTML(p, oppChamp) {
 // against a clean opponent just because the raw GAs happened to land close together. v4
 // (backtest-driven): first-time bumped 5 -> 7 (autofill unchanged at 5) — first-timers in the
 // backtest averaged place 8.8/10, well worse than the old penalty implied. v4.2: bumped again,
-// 7 -> 10 (see lib/riot.mjs's riskOf for the real-game trigger).
-const riskOf = p => (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 10 : 0);
+// 7 -> 10 (see lib/riot.mjs's riskOf for the real-game trigger). v4.3: smurf-flagged players are
+// exempt from both — a fresh account's thin role/champ history says nothing about a player who
+// is demonstrably experienced; counter penalties (handled separately via counterPenalty) still
+// apply since those are about the matchup, not the account.
+const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 10 : 0);
 
 // v4.2: mirrors lib/riot.mjs's LANE_DUO_BONUS — a duo'd player's lane reads a bit stronger than
 // their solo GA alone, since they can coordinate with a teammate elsewhere on the map.

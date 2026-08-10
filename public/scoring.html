@@ -52,6 +52,7 @@
       <tr><td>Rank vs lobby</td><td class="n">10</td><td>tier vs lobby avg, smurf +3 (cap 10)</td></tr>
       <tr><td>Season winrate</td><td class="n">5</td><td>WR tiers, needs 20+ season games</td></tr>
     </table>
+    <div class="thresh">Detected smurfs floor at GA 65 and skip account-history penalties (autofill/first-time/tilt) — a fresh account's thin role/champ history doesn't make an experienced player weak. The +3 rank-pts bump above still applies underneath; the floor is what catches the flagrant cases.</div>
   </div>
 
   <h2>Lane verdicts</h2>
@@ -59,6 +60,7 @@
     <code>adjusted GA = GA − 5 autofill − 10 first-time − 8 countered + 3 duo'd</code>
     <div class="thresh"><span class="chip ok">EVEN ≤5</span> · <span class="chip mid">favored 6–18</span> · <span class="chip bad">heavy &gt;18</span></div>
     <div class="thresh">The +3 duo bonus applies to whichever lane each half of a duo pair is playing — separate from (and on top of) the team-level duo bonus below.</div>
+    <div class="thresh">Smurf-flagged players skip the autofill/first-time terms entirely (0, not just reduced) — the countered term still applies.</div>
   </div>
 
   <h2>NOT FAIR triggers (below), but net decides</h2>
@@ -87,7 +89,7 @@
       <tr><td><span class="chip mid">autofill</span></td><td>off their usual role</td></tr>
       <tr><td><span class="chip mid">first-time</span></td><td>no recent games, low mastery</td></tr>
       <tr><td><span class="chip bad">countered</span></td><td>on the lane-counter list</td></tr>
-      <tr><td><span class="chip bad">SMURF?</span></td><td>low level, WR≥58% or KDA≥5</td></tr>
+      <tr><td><span class="chip bad">SMURF?</span></td><td>low level, WR≥58% or KDA≥5 — floors GA at 65, exempt from autofill/first-time/tilt</td></tr>
       <tr><td><span class="chip mid">tilt?</span></td><td>3+ games/3h, 2+ losses — info only, no score impact</td></tr>
       <tr><td><span class="chip mid">rusty</span></td><td>14+ days since last game</td></tr>
       <tr><td><span class="chip bad">AFK risk</span></td><td>recent early-surrender game</td></tr>
