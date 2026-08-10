@@ -149,6 +149,15 @@ td.you + td.you { border-left:none !important; }
    tallest content. Top-aligning keeps line 1 on a shared baseline regardless. */
 .matchup td { vertical-align:top; }
 .matchup .mid-v { text-align:center; white-space:nowrap; min-width:90px; padding-top:9px; }
+/* Win probability line under the TEAM row's verdict badge — team-colored, whichever side is
+   favored reads slightly bolder so the eye lands on the more confident number first. */
+.wp-line { margin-top:3px; font-size:11px; }
+.wp-blue { color:var(--blue); }
+.wp-red { color:var(--red); }
+.wp-hi { font-weight:800; }
+/* Compact "55–45" form used next to a row's badge/one-liner once that row has real entry data
+   (post-analyze) — dim by default like the rest of the row's secondary text. */
+.wp-compact { color:var(--dim); font-size:11px; white-space:nowrap; }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }

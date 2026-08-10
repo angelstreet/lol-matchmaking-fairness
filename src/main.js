@@ -115,6 +115,24 @@ function nameLink(riotId, region) {
   if (!url) return label;
   return `<a class="plink" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 }
+
+// Win probability, poker-style — a logistic on the same effective team-GA gap the fairness check
+// itself uses (lib/riot.mjs's fairness()), so it never disagrees with everything else on the page.
+// Team-colored, and whichever side is favored reads slightly bolder (nudges the eye toward the
+// more confident number without shouting over the verdict badge it sits under). Legacy entries
+// analyzed before this feature shipped don't have g.winProb — omitted entirely rather than
+// showing a fake 50/50. Defined up here (not near its callers further down) because renderRows
+// below is invoked synchronously at module load time (via the restoreLastSearch IIFE) and needs
+// winProbCompact already initialized — a `const` declared after that call site would still be in
+// its temporal dead zone when renderRows actually runs.
+function winProbHTML(wp) {
+  if (!wp) return '';
+  const blueHi = wp.blue >= wp.red;
+  return `<div class="wp-line"><span class="wp-blue${blueHi ? ' wp-hi' : ''}">BLUE ${wp.blue}%</span> · <span class="wp-red${!blueHi ? ' wp-hi' : ''}">RED ${wp.red}%</span></div>`;
+}
+// Compact "55–45" form for tight spaces (row one-liners) — same null-safe convention as above.
+const winProbCompact = wp => wp ? `${wp.blue}–${wp.red}` : '';
+
 // Game-row date/duration is squeezed into a fixed column (see .col-date), so it needs to be as
 // short as possible: duration drops the seconds ("38m 24s" -> "38m", "12m (in progress)"
 // unaffected since it has no seconds token to strip). The date itself is shown as a short
@@ -508,6 +526,14 @@ function liveRecoHTML(reco) {
   if (reco.delta > 0) return `<b class="reco-inline">PLAY FOR ${esc(reco.lane)} +${reco.delta} GA</b>`;
   return `<span class="reco-inline dim">No favored lane · best ${esc(reco.lane)} (${reco.delta})</span>`;
 }
+// User-team win% for the live header, dim, tacked on after the lane recommendation ("· 58% you")
+// — kept to the same single line as everything else in .live-head. Omitted for legacy/incomplete
+// entries without g.winProb rather than showing a fake number.
+function liveWinProbHTML(wp, userTeam) {
+  if (!wp || !userTeam) return '';
+  const pct = userTeam === 'blue' ? wp.blue : wp.red;
+  return `<span class="dim">· ${pct}% you</span>`;
+}
 
 function renderLive(g) {
   document.getElementById('liveCard')?.remove();
@@ -523,6 +549,7 @@ function renderLive(g) {
         <span class="dim">· ${mins} min</span>
         ${g.recommendation ? '<span class="dim">—</span>' : ''}
         ${liveRecoHTML(g.recommendation)}
+        ${liveWinProbHTML(g.winProb, g.userTeam)}
       </span>
       <span class="one-h" title="${esc(g.oneLiner || '')}">${esc(g.oneLiner || '')}</span>
     </div>
@@ -557,6 +584,14 @@ function renderRows(games, container, prefix, rid) {
     const key = prefix + i;
     const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking, g.direction)}" id="b${key}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>` : `<span id="b${key}"></span>`;
     const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
+    // Compact win% tag appended into the (already-flexible, already-truncating) one-liner area
+    // rather than as a new fixed sibling column — the row's other columns are deliberately tight
+    // (see .col-* below), so this only ever grows the one element already designed to absorb
+    // extra content. Row-summary data (this initial render) never carries winProb — kept out of
+    // the lightweight /api/matches and /api/history payloads on purpose — so this is empty here
+    // and only appears once a row has actually been analyzed/viewed (see analyze()'s DOM update).
+    const wpCompact = winProbCompact(g.winProb);
+    const oneLinerHTML = oneLiner + (wpCompact ? ` <span class="wp-compact" title="Estimated pre-game win chance BLUE–RED">${esc(wpCompact)}</span>` : '');
     // A live-snapshot entry (g.live — only ever set on rows coming through /api/history; the
     // search-list path via /api/matches never marks a cached row live, it falls through to the
     // uncached/wasLive branch instead) is still pre-game, not a finished game with an unknown-yet
@@ -593,7 +628,7 @@ function renderRows(games, container, prefix, rid) {
         <span class="col-kda">${esc(g.kda)}</span>
         <span class="col-badge">${badge}</span>
         <span class="col-date dim" title="${esc(absoluteDate(g.when))}">${dateHTML}</span>
-        <span class="one-h" id="o${key}" title="${oneLiner}">${oneLiner}</span>
+        <span class="one-h" id="o${key}" title="${oneLiner}">${oneLinerHTML}</span>
         <button class="mini${g.wasLive ? ' wasLive-ready' : ''}" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1" title="Your live-reviewed game just ended — click for the final analysis"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
         ${reanalyzeBtn}
       </div>
@@ -642,7 +677,11 @@ async function analyze(matchId, btn, i, attempt = 0) {
     const badgeEl = document.getElementById('b' + i);
     if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking, g.direction); badgeEl.textContent = verdictLabel(g.matchmaking, g.direction); badgeEl.title = verdictTitle(g.matchmaking, g.direction, g.verdictTooltip); }
     const oneEl = document.getElementById('o' + i);
-    if (oneEl) { oneEl.textContent = g.oneLiner || ''; oneEl.title = g.oneLiner || ''; }
+    if (oneEl) {
+      const wpCompact = winProbCompact(g.winProb);
+      oneEl.innerHTML = esc(g.oneLiner || '') + (wpCompact ? ` <span class="wp-compact" title="Estimated pre-game win chance BLUE–RED">${esc(wpCompact)}</span>` : '');
+      oneEl.title = g.oneLiner || '';
+    }
     if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
     card.classList.add('open');
     $('#status').textContent = '';
@@ -981,7 +1020,7 @@ function matchupHTML(g, rid) {
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span></td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
   </table>`;
 }
 
