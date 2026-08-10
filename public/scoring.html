@@ -82,7 +82,7 @@
 
   <h2>Win probability</h2>
   <div class="card">
-    <div class="thresh">Logistic on the same effective team-score gap used above (team GA + duo bonus): gap 10 → 55%, gap 20 → 60%, gap 40 → 69%. Conservatively calibrated — our analysis database is still small (~34 games), so this ships a deliberately gentle curve rather than an aggressive best-fit; refit planned as the game database grows.</div>
+    <div class="thresh">Logistic on the same net imbalance that decides the verdict above (net = 0.5 × lane sum + team GA gap + 1.5 × duo bonus difference) — never a separate number that could disagree with the badge. |net| 10 (the NOT FAIR threshold) → ~55/45, |net| 20 → ~60/40. Conservatively calibrated — our analysis database is still small (~34 games), so this ships a deliberately gentle curve rather than an aggressive best-fit; refit planned as the game database grows.</div>
   </div>
 
   <h2>Chips</h2>
