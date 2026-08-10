@@ -726,8 +726,13 @@ function chipsHTML(p, oppChamp) {
   // but a legacy cached analysis from before that fix can still carry both — defensively prefer
   // otp-denied (the risk signal) if a stale entry ever has both set.
   const isDenied = p.flags?.includes('otp-denied');
-  if (p.flags?.includes('otp') && !isDenied) c.push(['OTP', 'One-trick: played this champion in 4+ of their last 5 games or 150k+ mastery', 'flag-otp']);
+  if (p.flags?.includes('otp') && !isDenied) c.push(['OTP', 'Plays this champion a lot and masters it', 'flag-otp']);
   if (isDenied) c.push(['OTP denied', `One-trick on ${p.deniedChamp} but not playing it this game`, 'flag-otp-denied']);
+  // v4.4: OTP's mastery branch is now relative (dominant in the player's pool, not just >=150k
+  // absolute) — a player with real career mastery on this champ who ISN'T currently a one-trick
+  // on it (e.g. it's their 3rd-most-played champ, not their #1) gets this informational chip
+  // instead of OTP, so the raw skill signal isn't lost even though it doesn't earn the OTP label.
+  if (p.flags?.includes('mastery')) c.push([`${Math.round((p.masteryPts || 0) / 1000)}k mastery`, 'Skilled on this champion but not playing it much lately', 'flag-mastery']);
   if (oppChamp && counterPenalty(p.champ, oppChamp) > 0) c.push(['countered', `${p.champ} is countered by ${oppChamp}`, 'flag-countered']);
   // Session-history warning flags — computed from the player's prior games / league entry,
   // shown compactly; each is rare enough that a plain chip (no icon) reads fine.

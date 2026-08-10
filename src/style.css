@@ -95,6 +95,7 @@ td.you + td.you { border-left:none !important; }
    the GA number less trustworthy, same family as tilt; streaks are green/red for win/loss. */
 .chip.flag-duo { color:var(--blue); border-color:var(--blue); }
 .chip.flag-otp { color:var(--blue); border-color:var(--blue); }
+.chip.flag-mastery { color:var(--blue); border-color:var(--blue); }
 .chip.flag-autofill { color:var(--mid); border-color:var(--mid); }
 .chip.flag-first-time { color:var(--mid); border-color:var(--mid); }
 .chip.flag-rusty { color:var(--mid); border-color:var(--mid); }
