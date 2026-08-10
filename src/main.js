@@ -752,18 +752,16 @@ function chipsHTML(p, oppChamp) {
   const c = [];
   // Every chip gets a semantic color — no grey/default chips. Neutral/informational facts
   // (DUO, OTP) are blue; risk signals that hurt confidence in the GA number (autofill, rusty) are
-  // amber, same family as tilt. v4.5: first-time moved into the informational/no-score-impact
-  // group alongside tilt — see riskOf in lib/riot.mjs for why (fresh evidence at this elo: a
-  // first-time pick isn't a handicap, it reads more like a lure). Amber styling stays; the
-  // tooltip below says so explicitly. Streaks are green (win) / red (loss).
-  // v4.3: autofill/first-time/tilt are noise on a detected smurf — a fresh account's thin role
-  // and champ history says nothing about a player who's actually experienced, so those chips are
-  // suppressed for smurf-flagged players at the source (lib/riot.mjs's flags array). Re-checked
-  // here too, defensively, in case a legacy cached entry from before that fix still carries them
-  // alongside 'smurf'.
+  // amber, same family as tilt. Streaks are green (win) / red (loss).
+  // v4.3: autofill/tilt are noise on a detected smurf — a fresh account's thin role and champ
+  // history says nothing about a player who's actually experienced, so those chips are suppressed
+  // for smurf-flagged players at the source (lib/riot.mjs's flags array). Re-checked here too,
+  // defensively, in case a legacy cached entry from before that fix still carries them alongside
+  // 'smurf'. (A "first-time" chip used to live in this same suppression list — removed entirely,
+  // it was reading as a lure rather than a real signal. Any legacy cached entry still carrying
+  // the flag is simply ignored below; nothing renders it anymore.)
   const isSmurf = p.flags?.includes('smurf');
   if (p.flags?.includes('autofill') && !isSmurf) c.push(['autofill', 'Playing outside their usual role', 'flag-autofill']);
-  if (p.flags?.includes('first-time') && !isSmurf) c.push(['first-time', 'No recent games and low mastery on this champion — informational only, no scoring impact', 'flag-first-time']);
   // otp and otp-denied are mutually exclusive at the engine level (see gaScore in lib/riot.mjs),
   // but a legacy cached analysis from before that fix can still carry both — defensively prefer
   // otp-denied (the risk signal) if a stale entry ever has both set.
@@ -811,12 +809,10 @@ function chipsHTML(p, oppChamp) {
 
 // Off-role (autofill) picks are risk, not skill — mirrors riskOf in lib/riot.mjs so a lane with
 // an autofilled player never reads EVEN against a clean opponent just because the raw GAs
-// happened to land close together. v4.3: smurf-flagged players are exempt — a fresh account's
-// thin role history says nothing about a player who is demonstrably experienced; counter
-// penalties (handled separately via roleCounterPenalty below) still apply since those are about
-// the matchup, not the account. v4.5: the first-time penalty (was 5 -> 7 -> 10 across v4/v4.2) is
-// removed entirely — see lib/riot.mjs's riskOf for the real-game evidence and the elo-contextual
-// caveat. first-time is now purely informational (see chipsHTML above), no longer part of risk.
+// happened to land close together. Smurf-flagged players are exempt — a fresh account's thin role
+// history says nothing about a player who is demonstrably experienced; counter penalties (handled
+// separately via roleCounterPenalty below) still apply since those are about the matchup, not the
+// account.
 const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autofill') ? 5 : 0);
 
 // v4.5: mirrors lib/riot.mjs's role-weighted counter penalty — a countered solo lane (top/mid)
@@ -868,9 +864,6 @@ function laneDifferentiators(b, r) {
   oneSidedFlag('otp', p => `${p.champ} is OTP on this champ`, 8);
   oneSidedFlag('smurf', p => `${short(p)} looks like a smurf`, 9);
   oneSidedFlag('autofill', p => `${short(p)} is autofilled`, 6);
-  // v4.5: first-time dropped from the differentiator list — it no longer costs any GA (see
-  // riskOf in lib/riot.mjs), so citing it here would misleadingly imply it explains a gap it no
-  // longer has any part in creating.
 
   // Streak: one-sided only — a qualifying 3+ streak on BOTH sides is a genuine coincidence that
   // cancels the same way, since neither streak explains the gap over the other. Player name — a

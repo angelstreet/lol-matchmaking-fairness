@@ -97,7 +97,6 @@ td.you + td.you { border-left:none !important; }
 .chip.flag-otp { color:var(--blue); border-color:var(--blue); }
 .chip.flag-mastery { color:var(--blue); border-color:var(--blue); }
 .chip.flag-autofill { color:var(--mid); border-color:var(--mid); }
-.chip.flag-first-time { color:var(--mid); border-color:var(--mid); }
 .chip.flag-rusty { color:var(--mid); border-color:var(--mid); }
 .chip.streak-win { color:var(--ok); border-color:var(--ok); }
 .chip.streak-loss { color:var(--bad); border-color:var(--bad); }
