@@ -817,10 +817,19 @@ function chipsHTML(p, oppChamp) {
 // apply since those are about the matchup, not the account.
 const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autofill') ? 5 : 0) + (p?.flags?.includes('first-time') ? 10 : 0);
 
-// v4.2: mirrors lib/riot.mjs's LANE_DUO_BONUS — a duo'd player's lane reads a bit stronger than
-// their solo GA alone, since they can coordinate with a teammate elsewhere on the map.
+// v4.2: mirrors lib/riot.mjs's duoLaneBonusMap — a duo'd player's lane reads a bit stronger than
+// their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.4: a
+// duo that includes a jungler bleeds harder (+5 instead of +3) — a jungler can gank/path with
+// their duo partner on demand, more impactful than most same-lane duos; applies to BOTH members,
+// so the partner's position (looked up in allPlayers by p.duoWith's name) matters too, not just
+// p's own.
 const LANE_DUO_BONUS = 3;
-const duoAdjOf = p => (p?.duo ? LANE_DUO_BONUS : 0);
+const JUNGLE_DUO_LANE_BONUS = 5;
+function duoAdjOf(p, allPlayers) {
+  if (!p?.duo) return 0;
+  const partner = p.duoWith && allPlayers ? allPlayers.find(x => x.n === p.duoWith) : null;
+  return (p.pos === 'JUNGLE' || partner?.pos === 'JUNGLE') ? JUNGLE_DUO_LANE_BONUS : LANE_DUO_BONUS;
+}
 
 // v4.1.1: lane tooltips must explain the GA GAP, not just list flags — a trait shared by BOTH
 // laners (both OTP, both autofilled) explains nothing about why one side is ahead, so it's
@@ -988,8 +997,8 @@ function matchupHTML(g, rid) {
     // just because the raw GAs happened to be close.
     const bCounter = (b && r) ? counterPenalty(b.champ, r.champ) : 0;
     const rCounter = (b && r) ? counterPenalty(r.champ, b.champ) : 0;
-    const bAdj = bRiskAdj != null ? bRiskAdj - bCounter + duoAdjOf(b) : null;
-    const rAdj = rRiskAdj != null ? rRiskAdj - rCounter + duoAdjOf(r) : null;
+    const bAdj = bRiskAdj != null ? bRiskAdj - bCounter + duoAdjOf(b, g.players) : null;
+    const rAdj = rRiskAdj != null ? rRiskAdj - rCounter + duoAdjOf(r, g.players) : null;
     const fav = laneFavor(bAdj, rAdj);
     // v4.1.1: both the EVEN offsetting note and the favored-lane tooltip come from the same
     // shared-trait-cancels differentiator list (laneDifferentiators) — only whichever applies to
