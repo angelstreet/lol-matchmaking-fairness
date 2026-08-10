@@ -150,7 +150,10 @@ const absoluteDate = iso => {
 // Riot IDs are typed inconsistently ("Name #TAG" vs "Name#TAG") — normalize whitespace around
 // the '#' everywhere before it's used as a cache/history key, so both forms resolve the same entry.
 const normRiotId = s => String(s || '').trim().replace(/\s*#\s*/, '#');
-const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-key': k } : {}; };
+// Returns both the fetch headers AND the exact key string that went into them, so a caller that
+// later needs to react to a failed request (handleKeyError below) can tell whether THIS key is
+// still the one sitting in the field, instead of assuming it still is.
+const hdrs = () => { const k = $('#apiKey').value.trim(); return { headers: k ? { 'x-api-key': k } : {}, key: k }; };
 // A request that SENT the user's stored key can fail because that key expired/was revoked
 // (lib/riot.mjs's friendly 401/403 message contains 'key invalid or expired') — when that
 // happens, auto-clear the dead key instead of leaving the user stuck retrying with it.
@@ -159,9 +162,16 @@ const hdrs = () => { const k = $('#apiKey').value.trim(); return k ? { 'x-api-ke
 // former should ever clear the user's field. Without this, a failure that was really the
 // server's own expired shared key (e.g. because the client's key header happened to be empty for
 // that one request) would get mislabeled and wipe out the user's perfectly valid key instead.
-function handleKeyError(err, sentKey) {
+// Race fix: `sentKeyValue` is the EXACT key string this particular request sent (from hdrs()
+// above), not just a boolean. A slow in-flight request can resolve its 401 well after the user
+// has already pasted a new key over the old one — if the field no longer holds the key that
+// actually failed, that failure says nothing about the key sitting there now, so don't clear it
+// or tell the user their (perfectly fine, newly pasted) key was removed. Just silently re-check
+// the new one so its ✓/✗ indicator is accurate.
+function handleKeyError(err, sentKeyValue) {
   const msg = String(err?.message || '');
-  if (!sentKey || !msg.includes('key invalid or expired') || !msg.includes('(your pasted key)')) return false;
+  if (!sentKeyValue || !msg.includes('key invalid or expired') || !msg.includes('(your pasted key)')) return false;
+  if ($('#apiKey').value.trim() !== sentKeyValue) { checkKeyValidity(); return true; }
   $('#apiKey').value = '';
   localStorage.removeItem('rgapi');
   $('#keyValid').textContent = ''; $('#keyValid').title = ''; $('#keyValid').className = '';
@@ -296,7 +306,7 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
   renderRows(cached.games, $('#list'), 'm', cached.riotId);
   loadHistory(0);
   if (Date.now() - (cached.ts || 0) < 60000) return; // cache is fresh enough, skip the refetch
-  fetch(`${API}/api/matches?riotId=${encodeURIComponent(cached.riotId)}&games=${$('#games').value}&region=${cached.region}`, { headers: hdrs() })
+  fetch(`${API}/api/matches?riotId=${encodeURIComponent(cached.riotId)}&games=${$('#games').value}&region=${cached.region}`, { headers: hdrs().headers })
     .then(r => (r.ok ? r.json() : Promise.reject()))
     .then(data => {
       renderRows(data.games, $('#list'), 'm', cached.riotId);
@@ -340,7 +350,7 @@ async function pollLiveWatch(attempt = 0) {
   if (Date.now() - (marker.ts || 0) > LIVE_WATCH_MAX_AGE) { localStorage.removeItem('liveWatch'); liveWatchActive = false; return; }
   liveWatchActive = true;
   try {
-    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(marker.riotId)}&games=${$('#games').value}&region=${marker.region}`, { headers: hdrs() });
+    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(marker.riotId)}&games=${$('#games').value}&region=${marker.region}`, { headers: hdrs().headers });
     if (r.ok) {
       const data = await r.json();
       CTX = { riotId: marker.riotId, region: marker.region };
@@ -427,7 +437,7 @@ $('#f').addEventListener('submit', async e => {
   $('#status').textContent = '';
   let sentKey = false;
   try {
-    const h = hdrs(); sentKey = !!h['x-api-key'];
+    const { headers: h, key: hKey } = hdrs(); sentKey = hKey;
     const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(attempt.riotId)}&games=${$('#games').value}&region=${attempt.region}`, { headers: h });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.status);
@@ -459,7 +469,7 @@ $('#liveBtn').addEventListener('click', async () => {
 async function checkLive(riotId, region, attempt = 0) {
   let sentKey = false;
   try {
-    const h = hdrs(); sentKey = !!h['x-api-key'];
+    const { headers: h, key: hKey } = hdrs(); sentKey = hKey;
     const r = await fetch(`${API}/api/live?riotId=${encodeURIComponent(riotId)}&region=${region}`, { headers: h });
     const data = await r.json();
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
@@ -612,7 +622,7 @@ async function analyze(matchId, btn, i, attempt = 0) {
   beginBusy();
   let sentKey = false;
   try {
-    const h = hdrs(); sentKey = !!h['x-api-key'];
+    const { headers: h, key: hKey } = hdrs(); sentKey = hKey;
     const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(rid)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}${force}`, { headers: h });
     const data = await r.json();
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
