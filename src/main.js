@@ -650,14 +650,26 @@ async function loadHistory(offset) {
       if (offset === 0) renderLosingBadge([]); // no history at all -> badge can't apply
       return;
     }
-    // Only the newest page can possibly overlap with #list (both sort newest-first, so a game
-    // shared between them can only ever be among #list's most recent handful) — the exclusion
-    // filter and the "3 most recent" losing-streak read are both scoped to offset 0 for that
-    // reason; older pages render/count exactly as before.
-    if (offset === 0) renderLosingBadge(d.games);
+    // v4.16: user-reported concern (with a repro mechanism, verified real via a standalone
+    // simulation: feeding losingStreak() the POST-dedupe set instead of this one does produce a
+    // false positive when the newest game is FAIR but happens to also be displayed in #list) that
+    // the badge might be evaluated on the DEDUPED display set (below) rather than the raw,
+    // newest-first /api/history page. Re-verified end-to-end against the live deployed bundle with
+    // that exact scenario (newest game FAIR, present in #list, followed by older NOT-FAIR-against
+    // games) and the badge stayed correctly hidden -- rawHistoryGames below has always been passed
+    // to renderLosingBadge BEFORE any filtering exists (confirmed back to the feature's original
+    // commit, ac587fc), so this failure mode was never actually wired up. Kept as its own
+    // const, computed and consumed here before the dedupe filter is even defined, specifically so
+    // this can never regress by accident — the badge's data dependency is structural, not just
+    // ordering-by-convention. The exclusion filter and the "3 most recent" losing-streak read are
+    // both scoped to offset 0: only the newest page can possibly overlap with #list (both sort
+    // newest-first, so a shared game can only ever be among #list's most recent handful); older
+    // pages render/count exactly as before, unaffected.
+    const rawHistoryGames = d.games; // newest-first, straight from the API -- never filtered
+    if (offset === 0) renderLosingBadge(rawHistoryGames);
     const listedIds = offset === 0 ? listedMatchIds() : new Set();
-    const games = d.games.filter(g => !listedIds.has(g.matchId));
-    const hidden = d.games.length - games.length;
+    const games = rawHistoryGames.filter(g => !listedIds.has(g.matchId)); // display-only dedupe
+    const hidden = rawHistoryGames.length - games.length;
     const total = Math.max(0, d.total - hidden); // count reflects the filtered view
     if (!games.length && !total) { $('#histWrap').style.display = 'none'; return; }
     $('#histWrap').style.display = 'block';
