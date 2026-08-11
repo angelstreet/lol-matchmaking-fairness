@@ -917,18 +917,30 @@ const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autof
 const COUNTER_ROLE_PENALTY = { TOP: 8, MIDDLE: 8, JUNGLE: 4, BOTTOM: 3, UTILITY: 3 };
 const roleCounterPenalty = (champ, oppChamp, pos) => netCounter(champ, oppChamp) === champ ? (COUNTER_ROLE_PENALTY[pos] ?? 8) : 0;
 
-// v4.2: mirrors lib/riot.mjs's duoLaneBonusMap — a duo'd player's lane reads a bit stronger than
-// their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.4: a
-// duo that includes a jungler bleeds harder (+5 instead of +3) — a jungler can gank/path with
-// their duo partner on demand, more impactful than most same-lane duos; applies to BOTH members,
-// so the partner's position (looked up in allPlayers by p.duoWith's name) matters too, not just
-// p's own.
+// v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
+// their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.14: a
+// jungle-inclusive duo's bonus is now ADAPTIVE (mirrors lib/riot.mjs's jungleDuoBonus/duoLaneInfo)
+// rather than a flat +5 — real cases: Annie Tapis de Mosqué went 11/4/12 through a Δ34-ish deficit
+// (raw GA 55 vs her mid opponent Quicker's 94) with jungle duo partner Qiyana camping mid
+// relentlessly; Seraphine went 1/8/27 MVP — box-score numbers alone read as a stomp, but she was
+// the actual playmaker because her jungler propped the lane up around her. Bucketed by the duo'd
+// laner's raw GA deficit vs their direct lane opponent, computed from risk+counter-adjusted GA
+// BEFORE any duo bonus (ownPreDuo/oppPreDuo, passed in by the caller — matchupHTML already
+// computes these before calling this), deficit clamped at 0 so a duo'd laner who's actually ahead
+// still gets the baseline, not a penalty: <10 -> +9, 10-19 -> +12, >=20 -> +15. Applies to BOTH
+// members of a jungle-inclusive duo, each keyed off THEIR OWN lane's deficit, not their partner's.
 const LANE_DUO_BONUS = 3;
-const JUNGLE_DUO_LANE_BONUS = 5;
-function duoAdjOf(p, allPlayers) {
+const JUNGLE_DUO_TIERS = [{ under: 10, bonus: 9 }, { under: 20, bonus: 12 }, { under: Infinity, bonus: 15 }];
+const jungleDuoBonus = deficit => JUNGLE_DUO_TIERS.find(t => deficit < t.under).bonus;
+function duoAdjOf(p, allPlayers, ownPreDuo, oppPreDuo) {
   if (!p?.duo) return 0;
   const partner = p.duoWith && allPlayers ? allPlayers.find(x => x.n === p.duoWith) : null;
-  return (p.pos === 'JUNGLE' || partner?.pos === 'JUNGLE') ? JUNGLE_DUO_LANE_BONUS : LANE_DUO_BONUS;
+  const isJungleDuo = p.pos === 'JUNGLE' || partner?.pos === 'JUNGLE';
+  if (!isJungleDuo) return LANE_DUO_BONUS;
+  // No opponent on record for this lane (missing row) — no deficit signal to react to, fall back
+  // to the baseline tier rather than guessing.
+  if (ownPreDuo == null || oppPreDuo == null) return jungleDuoBonus(0);
+  return jungleDuoBonus(Math.max(0, oppPreDuo - ownPreDuo));
 }
 
 // v4.1.1: lane tooltips must explain the GA GAP, not just list flags — a trait shared by BOTH
@@ -938,10 +950,26 @@ function duoAdjOf(p, allPlayers) {
 // records which player each differentiator's text is actually about (the "winner" for
 // comparative factors, the flag-holder for one-sided ones), so laneEvenNote below can pick one
 // differentiator favoring each side for an "X offset by Y" pairing.
-function laneDifferentiators(b, r) {
+function laneDifferentiators(b, r, allPlayers) {
   if (!b || !r) return [];
   const short = p => (p?.n || '').split('#')[0];
   const out = [];
+
+  // Jungle-duo: the adaptive bonus above already prices this into the lane's GA, but the tooltip
+  // should name WHY, same as every other flag-driven factor here does. One-sided only (same
+  // cancels-out spirit as the flag block below) — if BOTH laners are jungle-duo'd, neither
+  // explains the gap over the other.
+  const isJungleDuo = p => {
+    if (!p?.duo) return false;
+    if (p.pos === 'JUNGLE') return true;
+    const partner = p.duoWith && allPlayers ? allPlayers.find(x => x.n === p.duoWith) : null;
+    return partner?.pos === 'JUNGLE';
+  };
+  const bJungleDuo = isJungleDuo(b), rJungleDuo = isJungleDuo(r);
+  if (bJungleDuo !== rJungleDuo) {
+    const p = bJungleDuo ? b : r;
+    out.push({ text: `${short(p)} duo with their jungler — gank threat`, w: 10, side: bJungleDuo ? 'b' : 'r' });
+  }
 
   // One-sided flags: only a differentiator when EXACTLY one side has it — both (or neither)
   // cancels out, since a shared trait can't be what's tipping THIS lane specifically. Named by
@@ -1018,8 +1046,8 @@ function laneDifferentiators(b, r) {
 // Favored (non-EVEN) lane tooltip: top 1-2 differentiators, dominant first. Falls back to null
 // (caller uses the generic "+N GA advantage" wording) when nothing differentiates — plenty of
 // favored lanes are just "somewhat ahead on raw rank/form" without crossing any threshold here.
-function laneFactorTooltip(b, r) {
-  const diffs = laneDifferentiators(b, r);
+function laneFactorTooltip(b, r, allPlayers) {
+  const diffs = laneDifferentiators(b, r, allPlayers);
   return diffs.length ? diffs.slice(0, 2).map(d => d.text).join('; ') : null;
 }
 
@@ -1027,8 +1055,8 @@ function laneFactorTooltip(b, r) {
 // factor favoring each side if both exist ("X offset by Y"), else just the lone factor found (a
 // small edge that existed but didn't swing the numeric outcome either way). Null when there's
 // nothing to say beyond the plain "Even matchup" wording.
-function laneEvenNote(b, r) {
-  const diffs = laneDifferentiators(b, r);
+function laneEvenNote(b, r, allPlayers) {
+  const diffs = laneDifferentiators(b, r, allPlayers);
   if (!diffs.length) return null;
   const bSide = diffs.find(d => d.side === 'b');
   const rSide = diffs.find(d => d.side === 'r');
@@ -1117,8 +1145,13 @@ function matchupHTML(g, rid) {
     // the raw GAs happened to be close. v4.5: role-weighted (roleCounterPenalty above), not flat.
     const bCounter = (b && r) ? roleCounterPenalty(b.champ, r.champ, role) : 0;
     const rCounter = (b && r) ? roleCounterPenalty(r.champ, b.champ, role) : 0;
-    const bAdj = bRiskAdj != null ? bRiskAdj - bCounter + duoAdjOf(b, g.players) : null;
-    const rAdj = rRiskAdj != null ? rRiskAdj - rCounter + duoAdjOf(r, g.players) : null;
+    // v4.14: "pre-duo" GA (risk+counter-adjusted, no duo bonus yet) is what the adaptive
+    // jungle-duo bonus's deficit is measured against — computed here, before duoAdjOf, and passed
+    // into it (mirrors lib/riot.mjs's laneAdj: bPreDuo/rPreDuo before duoLaneBonusFor).
+    const bPreDuo = bRiskAdj != null ? bRiskAdj - bCounter : null;
+    const rPreDuo = rRiskAdj != null ? rRiskAdj - rCounter : null;
+    const bAdj = bPreDuo != null ? bPreDuo + duoAdjOf(b, g.players, bPreDuo, rPreDuo) : null;
+    const rAdj = rPreDuo != null ? rPreDuo + duoAdjOf(r, g.players, rPreDuo, bPreDuo) : null;
     // v4.9: a lane where EXACTLY one side carries autofill risk (bRisk/rRisk above, smurf-exempt
     // as always) must never read EVEN — that side has an inherent edge even if the risk-adjusted
     // numbers happen to land close. skipEvenSide names the non-autofilled side, used as the
@@ -1129,8 +1162,8 @@ function matchupHTML(g, rid) {
     // shared-trait-cancels differentiator list (laneDifferentiators) — only whichever applies to
     // this lane's actual read (EVEN vs favored) is computed. laneVerdict falls back to its own
     // generic wording ("Even matchup..." / "+N GA advantage...") when either comes back null.
-    const riskNote = !fav ? laneEvenNote(b, r) : null;
-    const favorTooltip = fav ? laneFactorTooltip(b, r) : null;
+    const riskNote = !fav ? laneEvenNote(b, r, g.players) : null;
+    const favorTooltip = fav ? laneFactorTooltip(b, r, g.players) : null;
     const rowCls = (base, p, side) => {
       const c = base ? [base] : [];
       if (fav) { if (fav.side === side) c.push(`fav-${side}`); }
