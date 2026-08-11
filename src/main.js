@@ -559,19 +559,37 @@ function renderLive(g) {
   $('#list').insertBefore(card, $('#list').firstChild);
 }
 
+// v4.11: a game can show up in BOTH the top #list (the search's last-N-games results) and this
+// "analyzed history" list below it (history is an independent, older-inclusive query) — read as
+// the same 5 rows appearing twice. Read the matchIds currently rendered in #list live from the
+// DOM (rather than threading the search results through every loadHistory call site) so it works
+// regardless of which path populated #list: a search submit, the live-watch auto-upgrade, or
+// restoreLastSearch on page load.
+function listedMatchIds() {
+  return new Set(Array.from($('#list').querySelectorAll('[data-mid]')).map(el => el.dataset.mid));
+}
+
 async function loadHistory(offset) {
   try {
     const r = await fetch(`${API}/api/history?riotId=${encodeURIComponent(CTX.riotId)}&offset=${offset}&limit=10`);
     const d = await r.json();
     if (!r.ok || !d.total) { $('#histWrap').style.display = 'none'; return; }
+    // Only the newest page can possibly overlap with #list (both sort newest-first, so a game
+    // shared between them can only ever be among #list's most recent handful) — the exclusion
+    // filter is scoped to offset 0 for that reason; older pages render/count exactly as before.
+    const listedIds = offset === 0 ? listedMatchIds() : new Set();
+    const games = d.games.filter(g => !listedIds.has(g.matchId));
+    const hidden = d.games.length - games.length;
+    const total = Math.max(0, d.total - hidden); // count reflects the filtered view
+    if (!games.length && !total) { $('#histWrap').style.display = 'none'; return; }
     $('#histWrap').style.display = 'block';
-    renderRows(d.games, $('#hist'), 'h' + offset + '_', CTX.riotId);
-    if (d.total <= 10) { $('#histNav').innerHTML = ''; return; }
-    const from = offset + 1, to = offset + d.games.length;
+    renderRows(games, $('#hist'), 'h' + offset + '_', CTX.riotId);
+    if (total <= 10) { $('#histNav').innerHTML = ''; return; }
+    const from = offset + 1, to = offset + games.length;
     $('#histNav').innerHTML =
       (offset > 0 ? `<button class="mini" id="hNewer">◀ 10 newer</button>` : '') +
-      `<span>${from}–${to} of ${d.total} analyzed games</span>` +
-      (to < d.total ? `<button class="mini" id="hOlder">10 older ▶</button>` : '');
+      `<span>${from}–${to} of ${total} analyzed games</span>` +
+      (to < total ? `<button class="mini" id="hOlder">10 older ▶</button>` : '');
     const newer = $('#hNewer'), older = $('#hOlder');
     if (newer) newer.addEventListener('click', () => loadHistory(Math.max(0, offset - 10)));
     if (older) older.addEventListener('click', () => loadHistory(offset + 10));
