@@ -215,9 +215,21 @@ const verdictLabel = (v) => isFairVerdict(v) ? 'FAIR' : 'NOT FAIR';
 // explanation (FAIR-but-imbalanced), terse, straight from lib/riot.mjs. Legacy entries analyzed
 // before that field existed (or that still carry the retired 'mixed' direction) fall back to a
 // generic message pointing at re-analysis instead of guessing at content that isn't stored.
+// v4.12: legacy-cache scrub — "first-time" was fully removed as a scoring signal/flag/chip
+// (66c630d), but an analysis stored BEFORE that commit still has it baked verbatim into its
+// verdictTooltip/oneLiner strings (they're frozen text from analysis time, never regenerated just
+// because the engine changed) — e.g. the old "autofill/first-time risk against you" reason
+// wording. Rather than force a re-analysis just to fix display text, strip the token wherever
+// these stored strings render. Cheap string replace, not a real parser — good enough for a
+// wording leftover, not meant to handle arbitrary future flag renames.
+const scrubLegacy = s => (s || '')
+  .replace(/\s*\/\s*first-time(rs?)?/gi, '') // "autofill/first-time" -> "autofill"
+  .replace(/\bfirst-time(rs?)?\b\s*/gi, '')  // standalone "first-time"/"first-timers" tokens
+  .replace(/\s{2,}/g, ' ')
+  .trim();
 const verdictTitle = (v, dir, tooltip) => {
   if (dir === 'mixed') return 'Re-analyze for updated verdict';
-  if (tooltip) return tooltip;
+  if (tooltip) return scrubLegacy(tooltip);
   if (isFairVerdict(v)) return '';
   return dir === 'against' ? "The lobby was stacked in the enemy team's favor" : dir === 'favor' ? "The lobby was stacked in your team's favor" : 'Re-analyze for updated verdict';
 };
@@ -632,7 +644,7 @@ function renderRows(games, container, prefix, rid) {
     if (g.remake) return ''; // server no longer sends remakes; guard is only for legacy lastSearch cache
     const key = prefix + i;
     const badge = g.cached && g.matchmaking ? `<span class="badge ${verdictCls(g.matchmaking, g.direction)}" id="b${key}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>` : `<span id="b${key}"></span>`;
-    const oneLiner = g.cached ? esc(g.oneLiner || '') : '';
+    const oneLiner = g.cached ? esc(scrubLegacy(g.oneLiner)) : '';
     // Compact win% tag appended into the (already-flexible, already-truncating) one-liner area
     // rather than as a new fixed sibling column — the row's other columns are deliberately tight
     // (see .col-* below), so this only ever grows the one element already designed to absorb
@@ -728,8 +740,9 @@ async function analyze(matchId, btn, i, attempt = 0) {
     const oneEl = document.getElementById('o' + i);
     if (oneEl) {
       const wpCompact = winProbCompact(g.winProb);
-      oneEl.innerHTML = esc(g.oneLiner || '') + (wpCompact ? ` <span class="wp-compact" title="Estimated pre-game win chance BLUE–RED">${esc(wpCompact)}</span>` : '');
-      oneEl.title = g.oneLiner || '';
+      const cleanOneLiner = scrubLegacy(g.oneLiner);
+      oneEl.innerHTML = esc(cleanOneLiner) + (wpCompact ? ` <span class="wp-compact" title="Estimated pre-game win chance BLUE–RED">${esc(wpCompact)}</span>` : '');
+      oneEl.title = cleanOneLiner;
     }
     if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
     card.classList.add('open');

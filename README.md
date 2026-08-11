@@ -11,7 +11,7 @@ Enter a Riot ID, pick a game (or your **current live game**), and get a fairness
 - 🎯 **Ranked Solo/Duo only** (queue 420) — ARAM and flex never pollute the data
 - ⏪ **Pre-game form** for every player: W-L of their 5 ranked games *before* the analyzed match — current form lies, pre-game form doesn't
 - ⚖️ **Lane-by-lane matchup table**: champion · player · GA per side, `EVEN` / `BLUE +n` / `RED +n` verdicts, favored-side tinting, and a TEAM footer with the overall call
-- 🏷️ **At-a-glance chips** per player: `⚠️ autofill`, `first-time`, `OTP`, `🔗 duo` (proven by shared pre-game match IDs), `🔥/❄️` streaks, color-coded CS/min
+- 🏷️ **At-a-glance chips** per player: `⚠️ autofill`, `OTP`, `🔗 duo` (proven by shared pre-game match IDs), `🔥/❄️` streaks, color-coded CS/min
 - 👑 **MVP / ACE + 1st–10th** in-game performance ranking (KDA, kill participation, damage dealt share, **objective damage**, **damage taken** with an over-death guard, CS, vision — support- and tank-friendly)
 - 🔴 **Live game analysis** (spectator-v5): analyze your *current* lobby during loading screen — know by minute 2 which lanes are favored and where to play (roles inferred from each player's history)
 - ⭐ **Bookmarked profiles** in the search field's dropdown; with **sign-in (Clerk)** they sync across devices
