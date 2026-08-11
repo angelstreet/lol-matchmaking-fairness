@@ -954,13 +954,27 @@ function laneEvenNote(b, r) {
 // cancels explanation) REPLACES the generic "Even matchup..." wording when present, same as
 // favorTooltip (from laneFactorTooltip) replaces the generic "+N GA advantage" wording for a
 // favored lane — both fall back to their own generic phrasing when nothing differentiates.
-function laneVerdict(a, b, riskNote, favorTooltip) {
+// skipEvenSide (v4.9): the non-autofilled side's color ('blue'/'red') when EXACTLY one of the two
+// laners carries autofill risk — real case: Rakan (autofill, 58-5=53) vs Trundle (58) read EVEN
+// because the adjusted +5 gap sat inside the band, even though the autofill itself is an inherent
+// edge for the clean side. When set, the EVEN band is skipped for this lane entirely: the actual
+// favored side still wins if the adjusted numbers say so (autofill risk doesn't GUARANTEE a loss,
+// it's just skipped from the EVEN-masking check), and only a genuine 0 delta falls back to
+// crediting the non-autofilled side +1 — enough to never read as a tie.
+function laneVerdict(a, b, riskNote, favorTooltip, skipEvenSide) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
   // v4 (backtest-driven): EVEN band narrowed 8 -> 5 — a backtest of 17 cached analyses found
   // EVEN-band lanes were only right 27% of the time, the widest miss of any band. Favored is now
   // 6-18 (heavy stays >=19, unchanged).
   if (ad <= 5) {
+    if (skipEvenSide) {
+      const side = d !== 0 ? (d > 0 ? 'blue' : 'red') : skipEvenSide;
+      const shown = d !== 0 ? ad : 1; // exact wash: non-autofilled side still gets a nominal +1
+      const sideLabel = side === 'blue' ? 'Blue' : 'Red';
+      const title = favorTooltip || riskNote || `${sideLabel} side favored: one-sided autofill risk keeps this lane from reading even`;
+      return `<span class="lv-${side}" title="${esc(title)}">${side.toUpperCase()} +${shown}</span>`;
+    }
     const evenTitle = riskNote || `Even matchup — pre-game GA gap of only ${ad} points`;
     return `<span class="lv-even" title="${esc(evenTitle)}">EVEN</span>`;
   }
@@ -976,10 +990,12 @@ function laneVerdict(a, b, riskNote, favorTooltip) {
 // EVEN/BLUE +n/RED +n text. The favored/heavily-favored severity itself is no longer shown as
 // a chip on the player — it's explained by the Favored-column value's own tooltip instead.
 // Takes the same risk-adjusted values as laneVerdict so the tinting always agrees with the text.
-function laneFavor(a, b) {
+// skipEvenSide: see laneVerdict above — same one-sided-autofill EVEN-band bypass, mirrored here so
+// the row's fav-blue/fav-red/even-* CSS classes agree with what laneVerdict actually rendered.
+function laneFavor(a, b, skipEvenSide) {
   if (a == null || b == null) return null;
   const d = a - b, ad = Math.abs(d);
-  if (ad <= 5) return null; // v4: EVEN band narrowed 8 -> 5, same threshold as laneVerdict above
+  if (ad <= 5) return skipEvenSide ? { side: d !== 0 ? (d > 0 ? 'blue' : 'red') : skipEvenSide } : null; // v4: EVEN band narrowed 8 -> 5, same threshold as laneVerdict above
   return { side: d > 0 ? 'blue' : 'red' };
 }
 
@@ -1015,7 +1031,12 @@ function matchupHTML(g, rid) {
     const rCounter = (b && r) ? roleCounterPenalty(r.champ, b.champ, role) : 0;
     const bAdj = bRiskAdj != null ? bRiskAdj - bCounter + duoAdjOf(b, g.players) : null;
     const rAdj = rRiskAdj != null ? rRiskAdj - rCounter + duoAdjOf(r, g.players) : null;
-    const fav = laneFavor(bAdj, rAdj);
+    // v4.9: a lane where EXACTLY one side carries autofill risk (bRisk/rRisk above, smurf-exempt
+    // as always) must never read EVEN — that side has an inherent edge even if the risk-adjusted
+    // numbers happen to land close. skipEvenSide names the non-autofilled side, used as the
+    // fallback winner only for a genuine 0 delta (see laneVerdict/laneFavor).
+    const skipEvenSide = (bRisk > 0) !== (rRisk > 0) ? (bRisk > 0 ? 'red' : 'blue') : null;
+    const fav = laneFavor(bAdj, rAdj, skipEvenSide);
     // v4.1.1: both the EVEN offsetting note and the favored-lane tooltip come from the same
     // shared-trait-cancels differentiator list (laneDifferentiators) — only whichever applies to
     // this lane's actual read (EVEN vs favored) is computed. laneVerdict falls back to its own
@@ -1033,7 +1054,7 @@ function matchupHTML(g, rid) {
       if (!p) return '<span class="dim">—</span>';
       return `<span class="champ">${esc(p.champ)}</span>`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
