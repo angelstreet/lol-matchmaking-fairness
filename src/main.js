@@ -67,7 +67,15 @@ function flashKeyField() {
 // inline (✓/✗) right there. Debounced so it doesn't fire on every keystroke while pasting/typing.
 let keyCheckTimer = null;
 const looksLikeKey = v => /^RGAPI-/i.test(v);
-async function checkKeyValidity() {
+// v4.13: #status can be showing a KEY-related message (handleKeyError below sets this flag
+// whenever it does) that has nothing to do with whatever the user just typed/pasted — e.g. the
+// OLD key's "was expired and has been removed" text lingering while a brand-new, actually-valid
+// key sits in the field. Tracked with this flag (not string-matching #status's text, which is
+// fragile and duplicates the message strings) so both the input listener and a fresh ✓ can clear
+// it precisely, without touching any OTHER unrelated status text (e.g. "No ranked solo games
+// found.") that might legitimately still be showing.
+let statusHasKeyError = false;
+async function checkKeyValidity(isRetry = false) {
   const el = $('#keyValid');
   const val = $('#apiKey').value.trim();
   if (!looksLikeKey(val)) { el.textContent = ''; el.title = ''; el.className = ''; return; }
@@ -75,13 +83,30 @@ async function checkKeyValidity() {
   try {
     const r = await fetch(`${API}/api/keycheck`, { headers: { 'x-api-key': val } });
     const data = await r.json();
-    if (data.valid) { el.textContent = '✓'; el.title = 'This key is valid'; el.className = 'ok'; }
-    else { el.textContent = '✗'; el.title = `Riot rejected this key (status ${data.status || '?'}) — it may be expired or mistyped`; el.className = 'bad'; }
+    if (data.valid) {
+      el.textContent = '✓'; el.title = 'This key is valid'; el.className = 'ok';
+      if (statusHasKeyError) { $('#status').textContent = ''; statusHasKeyError = false; }
+    } else if (data.status === 429 || (data.status >= 500 && data.status < 600)) {
+      // Real case: a freshly pasted, genuinely valid key got a transient 429 from lol-status-v4
+      // (briefly saturated, e.g. mid-search burst) and read as a flat-out invalid ✗ — Riot being
+      // momentarily unavailable says nothing about the key itself. Stay in the neutral "checking"
+      // state and retry ONCE, ~4s later; only 401/403 (the actual "this key is bad" responses)
+      // ever produce ✗. Guard against a stale retry firing after the user has since changed the
+      // field, same race-safety pattern as handleKeyError's sentKeyValue check below.
+      el.title = 'Riot is momentarily unavailable — rechecking…';
+      if (!isRetry) setTimeout(() => { if ($('#apiKey').value.trim() === val) checkKeyValidity(true); }, 4000);
+    } else {
+      el.textContent = '✗'; el.title = `Riot rejected this key (status ${data.status || '?'}) — it may be expired or mistyped`; el.className = 'bad';
+    }
   } catch { el.textContent = ''; el.title = ''; el.className = ''; } // network hiccup — not the key's fault, stay silent
 }
 $('#apiKey').addEventListener('input', () => {
   localStorage.setItem('rgapi', $('#apiKey').value.trim());
   flashKeyField();
+  // New input always supersedes whatever key-error text was showing — a lingering "was expired
+  // and has been removed" from the OLD key's failure must not read as a verdict on what's in the
+  // field right now.
+  if (statusHasKeyError) { $('#status').textContent = ''; statusHasKeyError = false; }
   clearTimeout(keyCheckTimer);
   keyCheckTimer = setTimeout(checkKeyValidity, 800);
 });
@@ -195,6 +220,7 @@ function handleKeyError(err, sentKeyValue) {
   localStorage.removeItem('rgapi');
   $('#keyValid').textContent = ''; $('#keyValid').title = ''; $('#keyValid').className = '';
   $('#status').textContent = 'Your saved Riot API key was expired and has been removed — paste a fresh one from developer.riotgames.com, or continue keyless (3/day).';
+  statusHasKeyError = true; // cleared by the #apiKey input listener or a fresh ✓ (checkKeyValidity)
   return true;
 }
 // Verdict is binary (FAIR / NOT FAIR — echoing the app name). Legacy cached entries may still
