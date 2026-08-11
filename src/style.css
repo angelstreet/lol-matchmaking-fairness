@@ -174,6 +174,10 @@ td.you + td.you { border-left:none !important; }
    like blue for scannability (names start at a consistent edge); only the TEAM footer row's
    right cell keeps the .rgt right-alignment above, as a short bookend. */
 .place { color:var(--dim); font-size:11px; font-weight:700; }
+/* v4.17: compact rank tag ("E4"/"P2"/"M") next to GA in the matchup rows — same dim/small
+   treatment as .place so it reads as metadata, not a headline number. Hidden on mobile (see the
+   ≤640px block) rather than fighting for room in the already-tight stacked-card row. */
+.rank-tag { font-size:11px; font-weight:700; border:1px solid var(--line); border-radius:4px; padding:0 3px; }
 .matchup .pname { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
 .p-chips { display:flex; gap:4px; flex-wrap:wrap; margin-top:3px; }
 .matchup tr:not(.teamrow) .rgt { text-align:left; }
@@ -264,6 +268,7 @@ h4 { margin:10px 0 2px; }
   .matchup td { border-bottom:none; padding:2px 4px; }
   .matchup tr:not(.teamrow) { border-top:1px solid var(--line); padding:8px 0; }
   .matchup .champ-c { display:inline-block; width:auto; color:var(--dim); }
+  .matchup .rank-tag { display:none; } /* stacked cards are already tight — rank is a nice-to-have here */
   .matchup .mid-v { text-align:center; margin:6px 0; min-width:0; } /* also the TEAM row's badge cell */
   .matchup .teamrow { border-top:2px solid var(--line); }
   .matchup .teamrow td { border-top:none; padding:4px; }

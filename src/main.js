@@ -938,6 +938,43 @@ const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autof
 const COUNTER_ROLE_PENALTY = { TOP: 8, MIDDLE: 8, JUNGLE: 4, BOTTOM: 3, UTILITY: 3 };
 const roleCounterPenalty = (champ, oppChamp, pos) => netCounter(champ, oppChamp) === champ ? (COUNTER_ROLE_PENALTY[pos] ?? 8) : 0;
 
+// Shared rank scale — module-level (not function-local) so both laneDifferentiators' existing
+// rank-gap differentiator AND the v4.17 lane-rank-weighting below use the same tier order/labels.
+const RANK_TIER = ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Emerald', 'Diamond', 'Master', 'Grandmaster', 'Challenger'];
+const RANK_DIV = { I: 3, II: 2, III: 1, IV: 0 };
+const rankLabel = rk => rk ? rk.replace(/\s*\d+LP$/, '') : rk;
+// Compact tag for the matchup rows: "E4"/"P2"/"D3" for sub-apex tiers, "M"/"GM"/"C" (no division)
+// for Master+ — Riot's apex tiers aren't meaningfully split into IV-I the way lower tiers are.
+const RANK_TAG_LETTER = { Iron: 'I', Bronze: 'B', Silver: 'S', Gold: 'G', Platinum: 'P', Emerald: 'E', Diamond: 'D', Master: 'M', Grandmaster: 'GM', Challenger: 'C' };
+function rankTag(rankStr) {
+  if (!rankStr || rankStr === 'Unranked') return null;
+  const [tierWord, div] = rankStr.split(' ');
+  const letter = RANK_TAG_LETTER[tierWord];
+  if (!letter) return null;
+  const isApex = tierWord === 'Master' || tierWord === 'Grandmaster' || tierWord === 'Challenger';
+  return { label: isApex ? letter : `${letter}${{ IV: 4, III: 3, II: 2, I: 1 }[div] ?? ''}`, title: rankLabel(rankStr) };
+}
+// v4.17: mirrors lib/riot.mjs's rankDivisionIndex/rankGapAdj — direct head-to-head rank gap
+// between two LANE OPPONENTS specifically (separate from and additional to the rank-vs-lobby-
+// average signal already baked into each player's GA). Real case: a Platinum vs Emerald matchup
+// between direct lane opponents was completely invisible in the lane table (just "BLUE +6", no
+// rank shown anywhere). Division index: tier*4 + division-within-tier (IV=0..I=3) — apex tiers
+// collapse to their tier base, same reasoning as rankTag above. 2 GA per division of gap, capped
+// at ±8, added ONCE per lane (not once per side) so it can never contradict the engine's version.
+const RANK_LANE_WEIGHT = 2, RANK_LANE_CAP = 8;
+function rankDivisionIndex(rankStr) {
+  if (!rankStr || rankStr === 'Unranked') return null;
+  const [tierWord, div] = rankStr.split(' ');
+  const tier = RANK_TIER.indexOf(tierWord);
+  if (tier === -1) return null;
+  return tier >= RANK_TIER.indexOf('Master') ? tier * 4 : tier * 4 + (RANK_DIV[div] ?? 0);
+}
+function rankGapAdj(aRank, bRank) {
+  const a = rankDivisionIndex(aRank), b = rankDivisionIndex(bRank);
+  if (a == null || b == null) return 0;
+  return Math.max(-RANK_LANE_CAP, Math.min(RANK_LANE_CAP, (a - b) * RANK_LANE_WEIGHT));
+}
+
 // v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
 // their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.14: a
 // jungle-inclusive duo's bonus is now ADAPTIVE (mirrors lib/riot.mjs's jungleDuoBonus/duoLaneInfo)
@@ -1037,16 +1074,17 @@ function laneDifferentiators(b, r, allPlayers) {
   }
 
   // Rank gap: >=1 tier (4 division-units on this scale) or >=2 divisions within the same tier —
-  // both collapse to the same "unit gap >= 2" check. Player name — rank is account-level.
-  const RANK_TIER = ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Emerald', 'Diamond', 'Master', 'Grandmaster', 'Challenger'];
-  const RANK_DIV = { I: 3, II: 2, III: 1, IV: 0 };
+  // both collapse to the same "unit gap >= 2" check. Player name — rank is account-level. Uses the
+  // module-level RANK_TIER/RANK_DIV/rankLabel above (this differentiator's rankValue keeps its own
+  // apex handling — RANK_DIV['I']=3 — distinct from the v4.17 rankDivisionIndex used for lane-rank
+  // weighting, which deliberately zeroes the apex division bonus; unrelated concerns that happen
+  // to share a tier-order scale).
   const rankValue = p => {
     if (!p?.rank || p.rank === 'Unranked') return null;
     const [tierWord, div] = p.rank.split(' ');
     const tier = RANK_TIER.indexOf(tierWord);
     return tier === -1 ? null : tier * 4 + (RANK_DIV[div] ?? 0);
   };
-  const rankLabel = rk => rk ? rk.replace(/\s*\d+LP$/, '') : rk;
   const bRank = rankValue(b), rRank = rankValue(r);
   if (bRank != null && rRank != null && Math.abs(bRank - rRank) >= 2) {
     const better = bRank > rRank ? b : r, worse = better === b ? r : b;
@@ -1151,7 +1189,11 @@ function matchupHTML(g, rid) {
     const name = `<span class="pname">${nameLink(p.n)}</span>`;
     const kda = p.kda ? `<span class="dim">${esc(p.kda)}</span>` : '';
     const ga = `<b>GA ${p.ga ?? '–'}</b>`;
-    const main = [place, name, kda, ga].filter(Boolean).join(' ');
+    // v4.17: rank tag next to GA — compact ("E4"/"P2"/"M" for Master+), full rank+LP in the
+    // title. Unranked/missing rank renders nothing rather than an empty tag.
+    const rt = rankTag(p.rank);
+    const rank = rt ? `<span class="rank-tag dim" title="${esc(rt.title)}">${esc(rt.label)}</span>` : '';
+    const main = [place, name, kda, ga, rank].filter(Boolean).join(' ');
     const chips = badgeHTML(p) + chipsHTML(p, oppChamp);
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
@@ -1171,7 +1213,10 @@ function matchupHTML(g, rid) {
     // into it (mirrors lib/riot.mjs's laneAdj: bPreDuo/rPreDuo before duoLaneBonusFor).
     const bPreDuo = bRiskAdj != null ? bRiskAdj - bCounter : null;
     const rPreDuo = rRiskAdj != null ? rRiskAdj - rCounter : null;
-    const bAdj = bPreDuo != null ? bPreDuo + duoAdjOf(b, g.players, bPreDuo, rPreDuo) : null;
+    // v4.17: direct head-to-head rank gap between these two lane opponents (rankGapAdj, mirrors
+    // lib/riot.mjs) — added ONCE, on blue's side only, so bAdj-rAdj (wherever it's implicitly
+    // diffed below) carries the term exactly once, same as the engine's delta computation.
+    const bAdj = bPreDuo != null ? bPreDuo + duoAdjOf(b, g.players, bPreDuo, rPreDuo) + rankGapAdj(b.rank, r?.rank) : null;
     const rAdj = rPreDuo != null ? rPreDuo + duoAdjOf(r, g.players, rPreDuo, bPreDuo) : null;
     // v4.9: a lane where EXACTLY one side carries autofill risk (bRisk/rRisk above, smurf-exempt
     // as always) must never read EVEN — that side has an inherent edge even if the risk-adjusted
