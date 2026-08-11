@@ -35,6 +35,7 @@ document.querySelector('#app').innerHTML = `
     </div>
   </form>
   <div id="status"></div>
+  <div id="losingBadge" style="display:none"></div>
   <div id="list"></div>
   <div id="histWrap" style="display:none">
     <h3 style="margin:24px 0 8px">📜 Analyzed history</h3>
@@ -569,14 +570,44 @@ function listedMatchIds() {
   return new Set(Array.from($('#list').querySelectorAll('[data-mid]')).map(el => el.dataset.mid));
 }
 
+// v4.11: "LOSING QUEUE?" badge — a real pattern the user flagged: 3+ consecutive analyzed games,
+// newest first, all NOT FAIR *against* them, suggests the matchmaker may be pushing them down
+// rather than just a run of bad luck. Live snapshots (g.live) are excluded — they're pre-game,
+// not a finished, judged result. Counts the FULL streak (not capped at 3) so ×4/×5 etc. can be
+// shown; breaks (and returns) at the first analyzed game that doesn't match, so it only ever
+// counts a genuinely unbroken run ending at the most recent game.
+function losingStreak(games) {
+  let n = 0;
+  for (const g of games) {
+    if (g.live) continue; // final analyses only
+    if (g.matchmaking === 'NOT FAIR' && g.direction === 'against') n++;
+    else break;
+  }
+  return n;
+}
+function renderLosingBadge(games) {
+  const el = $('#losingBadge');
+  const n = losingStreak(games);
+  if (n < 3) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const label = n > 3 ? `LOSING QUEUE? ×${n}` : 'LOSING QUEUE?';
+  el.innerHTML = `<span class="badge b-bad" title="Last ${n} analyzed games were stacked against this player — the matchmaker may be pushing them down">${esc(label)}</span>`;
+  el.style.display = 'block';
+}
+
 async function loadHistory(offset) {
   try {
     const r = await fetch(`${API}/api/history?riotId=${encodeURIComponent(CTX.riotId)}&offset=${offset}&limit=10`);
     const d = await r.json();
-    if (!r.ok || !d.total) { $('#histWrap').style.display = 'none'; return; }
+    if (!r.ok || !d.total) {
+      $('#histWrap').style.display = 'none';
+      if (offset === 0) renderLosingBadge([]); // no history at all -> badge can't apply
+      return;
+    }
     // Only the newest page can possibly overlap with #list (both sort newest-first, so a game
     // shared between them can only ever be among #list's most recent handful) — the exclusion
-    // filter is scoped to offset 0 for that reason; older pages render/count exactly as before.
+    // filter and the "3 most recent" losing-streak read are both scoped to offset 0 for that
+    // reason; older pages render/count exactly as before.
+    if (offset === 0) renderLosingBadge(d.games);
     const listedIds = offset === 0 ? listedMatchIds() : new Set();
     const games = d.games.filter(g => !listedIds.has(g.matchId));
     const hidden = d.games.length - games.length;

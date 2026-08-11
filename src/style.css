@@ -110,6 +110,11 @@ td.you + td.you { border-left:none !important; }
 .bmItem .dim { font-size:12px; }
 .ga-hi { color:var(--ok); font-weight:700; } .ga-lo { color:var(--bad); font-weight:700; }
 #status { color:var(--dim); margin:20px 0; }
+/* v4.11: "LOSING QUEUE?" banner — a slim strip above #list, only present (display:block, toggled
+   in JS) when the searched profile has a 3+ streak of consecutive NOT FAIR/against analyzed games.
+   Reuses the existing .badge/.b-bad pill styling so it reads as the same visual language as the
+   per-row verdict badges rather than a new component. */
+#losingBadge { margin:0 0 14px; }
 /* Desktop: strictly one line — result/champ/badge/buttons must always stay visible and never
    wrap to a second line; the one-liner (.one-h below) is the only element allowed to shrink,
    truncating with an ellipsis instead of pushing the row's height out or wrapping the buttons.
