@@ -610,15 +610,24 @@ function listedMatchIds() {
 
 // v4.11: "LOSING QUEUE?" badge — a real pattern the user flagged: 3+ consecutive analyzed games,
 // newest first, all NOT FAIR *against* them, suggests the matchmaker may be pushing them down
-// rather than just a run of bad luck. Live snapshots (g.live) are excluded — they're pre-game,
-// not a finished, judged result. Counts the FULL streak (not capped at 3) so ×4/×5 etc. can be
-// shown; breaks (and returns) at the first analyzed game that doesn't match, so it only ever
-// counts a genuinely unbroken run ending at the most recent game.
+// rather than just a run of bad luck. v4.15: user-reported concern this was (or looked like it
+// was) keying off the game's RESULT — audited, and it never has: isUnfairAgainst below checks
+// ONLY matchmaking/direction, never g.result/g.win, and this is the single source of truth
+// losingStreak calls per game (no other comparison exists in this function). Wins/losses are
+// deliberately irrelevant: a lost-but-FAIR game breaks the streak just as a won-but-NOT-FAIR-
+// against game continues it — the badge is about matchmaking imbalance, not the scoreboard.
+// Extracted into a named predicate specifically so this invariant is easy to audit at a glance,
+// not buried inside the loop.
+const isUnfairAgainst = g => g.matchmaking === 'NOT FAIR' && g.direction === 'against';
+// Live snapshots (g.live) are excluded — they're pre-game, not a finished, judged result. Counts
+// the FULL streak (not capped at 3) so ×4/×5 etc. can be shown; breaks (and returns) at the first
+// analyzed game that doesn't match, so it only ever counts a genuinely unbroken run ending at the
+// most recent game.
 function losingStreak(games) {
   let n = 0;
   for (const g of games) {
     if (g.live) continue; // final analyses only
-    if (g.matchmaking === 'NOT FAIR' && g.direction === 'against') n++;
+    if (isUnfairAgainst(g)) n++;
     else break;
   }
   return n;
@@ -628,7 +637,7 @@ function renderLosingBadge(games) {
   const n = losingStreak(games);
   if (n < 3) { el.style.display = 'none'; el.innerHTML = ''; return; }
   const label = n > 3 ? `LOSING QUEUE? ×${n}` : 'LOSING QUEUE?';
-  el.innerHTML = `<span class="badge b-bad" title="Last ${n} analyzed games were stacked against this player — the matchmaker may be pushing them down">${esc(label)}</span>`;
+  el.innerHTML = `<span class="badge b-bad" title="Last ${n} analyzed games were all stacked AGAINST this player (regardless of result) — the matchmaker may be pushing them down">${esc(label)}</span>`;
   el.style.display = 'block';
 }
 
