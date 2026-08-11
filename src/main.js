@@ -1,5 +1,5 @@
 import './style.css';
-import { counterPenalty } from '../lib/counters.mjs';
+import { netCounter } from '../lib/counters.mjs';
 
 // Same-origin API in production (Vercel functions); Vite proxies /api in dev.
 const API = import.meta.env.VITE_API_URL || '';
@@ -773,7 +773,10 @@ function chipsHTML(p, oppChamp) {
   // on it (e.g. it's their 3rd-most-played champ, not their #1) gets this informational chip
   // instead of OTP, so the raw skill signal isn't lost even though it doesn't earn the OTP label.
   if (p.flags?.includes('mastery')) c.push([`${Math.round((p.masteryPts || 0) / 1000)}k mastery`, 'Skilled on this champion but not playing it much lately', 'flag-mastery']);
-  if (oppChamp && counterPenalty(p.champ, oppChamp) > 0) c.push(['countered', `${p.champ} is countered by ${oppChamp}`, 'flag-countered']);
+  // Goes through netCounter, not a raw counterPenalty(p.champ, oppChamp) call — a curated
+  // bidirectional matchup (a handful exist in lib/counters.mjs) is a wash for this specific
+  // head-to-head, not a "countered" chip for both laners at once.
+  if (oppChamp && netCounter(p.champ, oppChamp) === p.champ) c.push(['countered', `${p.champ} is countered by ${oppChamp}`, 'flag-countered']);
   // Session-history warning flags — computed from the player's prior games / league entry,
   // shown compactly; each is rare enough that a plain chip (no icon) reads fine.
   if (p.flags?.includes('tilt') && !isSmurf) c.push(['tilt?', '3+ games in the last ~3h with at least 2 losses — possible session tilt', 'flag-tilt']);
@@ -819,9 +822,12 @@ const riskOf = p => p?.flags?.includes('smurf') ? 0 : (p?.flags?.includes('autof
 // has no one to bail them out; jungle/bot/support have a partner who can offset a bad matchup, so
 // the same "known bad matchup" costs less there. The "countered" CHIP (chipsHTML above,
 // laneDifferentiators below) stays a flat yes/no regardless of role or size — only the
-// GA-affecting lane math (matchupHTML's bAdj/rAdj) uses this role-scaled version.
+// GA-affecting lane math (matchupHTML's bAdj/rAdj) uses this role-scaled version. Goes through
+// netCounter (lib/counters.mjs), not a raw counterPenalty(champ, oppChamp) call — mirrors the
+// engine's mutual-counter cancellation (a curated bidirectional matchup is a wash, not a double
+// penalty for the same lane).
 const COUNTER_ROLE_PENALTY = { TOP: 8, MIDDLE: 8, JUNGLE: 4, BOTTOM: 3, UTILITY: 3 };
-const roleCounterPenalty = (champ, oppChamp, pos) => counterPenalty(champ, oppChamp) > 0 ? (COUNTER_ROLE_PENALTY[pos] ?? 8) : 0;
+const roleCounterPenalty = (champ, oppChamp, pos) => netCounter(champ, oppChamp) === champ ? (COUNTER_ROLE_PENALTY[pos] ?? 8) : 0;
 
 // v4.2: mirrors lib/riot.mjs's duoLaneBonusMap — a duo'd player's lane reads a bit stronger than
 // their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.4: a
@@ -873,10 +879,15 @@ function laneDifferentiators(b, r) {
   if (bStreak && !rStreak) out.push({ text: bStreak.win ? `${short(b)} on a ${bStreak.n}-win streak` : `${short(b)} lost ${bStreak.n} in a row`, w: 5, side: 'b' });
   else if (rStreak && !bStreak) out.push({ text: rStreak.win ? `${short(r)} on a ${rStreak.n}-win streak` : `${short(r)} lost ${rStreak.n} in a row`, w: 5, side: 'r' });
 
-  // Countered: directional by construction (lib/counters.mjs isn't a symmetric matrix), names
-  // both champions.
-  if (b.champ && r.champ && counterPenalty(b.champ, r.champ) > 0) out.push({ text: `${b.champ} countered by ${r.champ}`, w: 12, side: 'b' });
-  if (b.champ && r.champ && counterPenalty(r.champ, b.champ) > 0) out.push({ text: `${r.champ} countered by ${b.champ}`, w: 12, side: 'r' });
+  // Countered: netCounter (lib/counters.mjs) resolves which side, if either, is the NET-countered
+  // one — a curated bidirectional matchup (a few exist in the matrix) cancels out here the same
+  // way a shared flag does elsewhere in this function, rather than naming both champions as
+  // countered by each other in the same lane.
+  if (b.champ && r.champ) {
+    const countered = netCounter(b.champ, r.champ);
+    if (countered === b.champ) out.push({ text: `${b.champ} countered by ${r.champ}`, w: 12, side: 'b' });
+    else if (countered === r.champ) out.push({ text: `${r.champ} countered by ${b.champ}`, w: 12, side: 'r' });
+  }
 
   // Form gap (last-5 win count, from the "3W-2L" form string) — the dominant differentiator
   // whenever the win counts differ by >=2; smaller gaps are too close to call. Champion name
