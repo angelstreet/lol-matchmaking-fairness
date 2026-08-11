@@ -160,6 +160,9 @@ td.you + td.you { border-left:none !important; }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }
+/* Autofill count in the TEAM footer (next to the duo suffix) — amber, same risk-family color as
+   the autofill chip, since it's the same signal just surfaced at the team level. */
+.af-count { color:var(--mid); font-weight:400; }
 /* Each matchup player cell is two stacked lines: #place + name + game KDA + GA on line one,
    every chip (MVP/ACE leading, then OTP/duo/flags/streak/cs/severity) on line two. Same element
    order on both sides — no per-side DOM reversal needed. Red side LANE rows are left-aligned

@@ -1040,12 +1040,21 @@ function matchupHTML(g, rid) {
   // Legacy entries analyzed before duo synergy scoring don't have g.duoBonus — the (+N duo)
   // tag is simply omitted for them rather than showing a bogus +0. "team GA" (not "avg GA") since
   // v4: it's a top-weighted blend (65% team mean + 35% mean of the top 2 GAs), not a flat average
-  // — see weightedGA in lib/riot.mjs's fairness().
-  const teamGaText = (teamGa, bonus) => `<span title="65% team average + 35% average of the top 2 GAs">team GA</span> ${teamGa ?? '–'}` + (bonus > 0 ? ` <span title="GA bonus for proven duo synergy">(+${bonus} duo)</span>` : '');
+  // — see weightedGA in lib/riot.mjs's fairness(). v4.8: autofill count joins the duo suffix, amber
+  // (risk-family color) when a team has any — autofill asymmetry now has its own weight in the net
+  // formula (see scoring.html), so it needs to be visible here too, not just implied by the badge.
+  // Same "omit for legacy entries" treatment as duo: g.autofillCounts may be undefined on older
+  // cached analyses.
+  const teamGaText = (teamGa, bonus, autofillN) => {
+    const tags = [];
+    if (bonus > 0) tags.push(`<span title="GA bonus for proven duo synergy">+${bonus} duo</span>`);
+    if (autofillN > 0) tags.push(`<span class="af-count" title="${autofillN} autofilled player${autofillN === 1 ? '' : 's'} on this team — off-role risk, weighed into the net">${autofillN} autofill</span>`);
+    return `<span title="65% team average + 35% average of the top 2 GAs">team GA</span> ${teamGa ?? '–'}` + (tags.length ? ` (${tags.join(' · ')})` : '');
+  };
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red)}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue, g.autofillCounts?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red, g.autofillCounts?.red)}</b></td></tr>
   </table>`;
 }
 
