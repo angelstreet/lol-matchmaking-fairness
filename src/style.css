@@ -1,7 +1,12 @@
 :root { --bg:#0e1015; --card:#181b22; --line:#262b36; --txt:#e8eaf0; --dim:#8a91a3;
         --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; --red:#d97a4a; }
 * { box-sizing:border-box; margin:0; }
-body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; max-width:980px; margin:auto; }
+/* v4.19: widened 980 -> 1200 — the rank·WR tags (v4.18) pushed some matchup player cells to wrap
+   onto 2 lines at the old width, and 980 was leaving large unused side margins on typical desktop
+   screens anyway. Side margins stay auto-centered (margin:auto unchanged); everything below that
+   depends on width uses %, ch, or its own unrelated fixed px (e.g. .pname's 150px truncation) —
+   nothing was hardcoded against 980 specifically, so rows just gain slack, they don't reflow. */
+body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; max-width:1200px; margin:auto; }
 h1 { font-size:22px; margin-bottom:4px; } h1 span { color:var(--ok); }
 /* Right-aligned cluster in the header: the /scoring.html link immediately left of the profile
    button (#clerkBtn, populated by Clerk once it loads — mounted user button or a "Sign in"
@@ -181,8 +186,12 @@ td.you + td.you { border-left:none !important; }
 .place { color:var(--dim); font-size:11px; font-weight:700; }
 /* v4.17: compact rank tag ("E4"/"P2"/"M") next to GA in the matchup rows — same dim/small
    treatment as .place so it reads as metadata, not a headline number. Hidden on mobile (see the
-   ≤640px block) rather than fighting for room in the already-tight stacked-card row. */
-.rank-tag { font-size:11px; font-weight:700; border:1px solid var(--line); border-radius:4px; padding:0 3px; }
+   ≤640px block) rather than fighting for room in the already-tight stacked-card row. v4.19:
+   white-space:nowrap keeps "P2 · 49%" atomic — it must never split across two lines internally;
+   at typical name lengths the wider (1200px) page gives the whole cell room to stay one line, but
+   even if a long name wraps the CELL as a whole, the tag itself stays intact rather than breaking
+   mid-string. */
+.rank-tag { font-size:11px; font-weight:700; border:1px solid var(--line); border-radius:4px; padding:0 3px; white-space:nowrap; }
 .matchup .pname { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
 .p-chips { display:flex; gap:4px; flex-wrap:wrap; margin-top:3px; }
 .matchup tr:not(.teamrow) .rgt { text-align:left; }
