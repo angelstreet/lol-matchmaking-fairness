@@ -1,5 +1,6 @@
 import './style.css';
 import { netCounter } from '../lib/counters.mjs';
+import { STATS as CHAMP_STATS, PATCH as CHAMP_STATS_PATCH } from '../lib/champstats.mjs';
 
 // Same-origin API in production (Vercel functions); Vite proxies /api in dev.
 const API = import.meta.env.VITE_API_URL || '';
@@ -943,16 +944,50 @@ const roleCounterPenalty = (champ, oppChamp, pos) => netCounter(champ, oppChamp)
 const RANK_TIER = ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Emerald', 'Diamond', 'Master', 'Grandmaster', 'Challenger'];
 const RANK_DIV = { I: 3, II: 2, III: 1, IV: 0 };
 const rankLabel = rk => rk ? rk.replace(/\s*\d+LP$/, '') : rk;
-// Compact tag for the matchup rows: "E4"/"P2"/"D3" for sub-apex tiers, "M"/"GM"/"C" (no division)
-// for Master+ — Riot's apex tiers aren't meaningfully split into IV-I the way lower tiers are.
+// Compact tag abbreviation for the matchup rows: "E4"/"P2"/"D3" for sub-apex tiers, "M"/"GM"/"C"
+// (no division) for Master+ — Riot's apex tiers aren't meaningfully split into IV-I the way lower
+// tiers are. parseRank is the shared base (tier/div/LP breakdown + the abbreviation + the full
+// "Tier Div · NN LP" string) that both rankTag (matchup rows) and rankDetailLabel (details table)
+// build on, so the two never disagree about what a given rank string means.
 const RANK_TAG_LETTER = { Iron: 'I', Bronze: 'B', Silver: 'S', Gold: 'G', Platinum: 'P', Emerald: 'E', Diamond: 'D', Master: 'M', Grandmaster: 'GM', Challenger: 'C' };
-function rankTag(rankStr) {
-  if (!rankStr || rankStr === 'Unranked') return null;
-  const [tierWord, div] = rankStr.split(' ');
+function parseRank(rankStr) {
+  const m = rankStr && /^(\S+)\s+(\S+)\s+(\d+)LP$/.exec(rankStr);
+  if (!m) return null;
+  const [, tierWord, div, lp] = m;
   const letter = RANK_TAG_LETTER[tierWord];
   if (!letter) return null;
   const isApex = tierWord === 'Master' || tierWord === 'Grandmaster' || tierWord === 'Challenger';
-  return { label: isApex ? letter : `${letter}${{ IV: 4, III: 3, II: 2, I: 1 }[div] ?? ''}`, title: rankLabel(rankStr) };
+  const abbrev = isApex ? letter : `${letter}${{ IV: 4, III: 3, II: 2, I: 1 }[div] ?? ''}`;
+  return { abbrev, full: `${tierWord} ${div} · ${lp} LP` };
+}
+// v4.18: tag extended from rank-only to rank·winrate ("P3 · 51%") — a rank number alone doesn't
+// say whether that's a strong or weak account for the tier; season winrate does. wr/seasonGames
+// come straight from the entry (gaScore already computes both; wr is null whenever seasonGames is
+// 0, i.e. no ranked games yet this season — same condition already used elsewhere in this file).
+// Full W-L is derived (seasonGames × wr/100, rounded) since only the aggregate win% is stored, not
+// exact win/loss counts. Unranked -> no tag at all; ranked but missing wr -> rank only, no "· NN%".
+function rankTag(rankStr, wr, seasonGames) {
+  const p = parseRank(rankStr);
+  if (!p) return null;
+  let label = p.abbrev, title = p.full;
+  if (wr != null) {
+    label += ` · ${wr}%`;
+    if (seasonGames) {
+      const w = Math.round(seasonGames * wr / 100), l = seasonGames - w;
+      title += ` · ${w}W-${l}L (${wr}%)`;
+    } else {
+      title += ` · ${wr}%`;
+    }
+  }
+  return { label, title };
+}
+// Details table's rank column: the full, unabbreviated form ("Emerald I · 50 LP · 51%") — more
+// room there than the compact matchup-row tag, so no need to abbreviate the tier name. Falls back
+// to the raw rank string (e.g. "Unranked") when it doesn't parse as a normal ranked entry.
+function rankDetailLabel(rankStr, wr) {
+  const p = parseRank(rankStr);
+  const base = p ? p.full : (rankStr || 'Unranked');
+  return base + (wr != null ? ` · ${wr}%` : '');
 }
 // v4.17: mirrors lib/riot.mjs's rankDivisionIndex/rankGapAdj — direct head-to-head rank gap
 // between two LANE OPPONENTS specifically (separate from and additional to the rank-vs-lobby-
@@ -973,6 +1008,19 @@ function rankGapAdj(aRank, bRank) {
   const a = rankDivisionIndex(aRank), b = rankDivisionIndex(bRank);
   if (a == null || b == null) return 0;
   return Math.max(-RANK_LANE_CAP, Math.min(RANK_LANE_CAP, (a - b) * RANK_LANE_WEIGHT));
+}
+
+// v4.18: champion meta hover — a per-patch snapshot (lib/champstats.mjs, same "static curated
+// file, not a live call" philosophy as lib/counters.mjs), keyed by the exact match-v5 internal
+// champion name every champ field in this app already uses, so no separate name-mapping is
+// needed here. A champion missing from the snapshot (not yet in the fetched data, or a display
+// mismatch) just gets no hover — never a fabricated number. Info-only: doesn't feed the fairness
+// verdict, doesn't affect any GA math, purely a "what's this champ doing in the meta right now"
+// tooltip.
+function champMetaTitle(champ) {
+  const s = champ && CHAMP_STATS[champ];
+  if (!s) return null;
+  return `${champ} — WR ${s.wr}% · pick ${s.pick}% · ban ${s.ban}% (patch ${CHAMP_STATS_PATCH})`;
 }
 
 // v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
@@ -1189,9 +1237,10 @@ function matchupHTML(g, rid) {
     const name = `<span class="pname">${nameLink(p.n)}</span>`;
     const kda = p.kda ? `<span class="dim">${esc(p.kda)}</span>` : '';
     const ga = `<b>GA ${p.ga ?? '–'}</b>`;
-    // v4.17: rank tag next to GA — compact ("E4"/"P2"/"M" for Master+), full rank+LP in the
-    // title. Unranked/missing rank renders nothing rather than an empty tag.
-    const rt = rankTag(p.rank);
+    // v4.17/v4.18: rank·winrate tag next to GA — compact ("E4 · 51%", "M" alone for Master+ with
+    // no games yet), full rank+LP+W-L in the title. Unranked renders nothing rather than an empty
+    // tag.
+    const rt = rankTag(p.rank, p.wr, p.seasonGames);
     const rank = rt ? `<span class="rank-tag dim" title="${esc(rt.title)}">${esc(rt.label)}</span>` : '';
     const main = [place, name, kda, ga, rank].filter(Boolean).join(' ');
     const chips = badgeHTML(p) + chipsHTML(p, oppChamp);
@@ -1239,7 +1288,10 @@ function matchupHTML(g, rid) {
     };
     const champCell = (p) => {
       if (!p) return '<span class="dim">—</span>';
-      return `<span class="champ">${esc(p.champ)}</span>`;
+      const meta = champMetaTitle(p.champ);
+      const cls = meta ? 'champ champ-meta' : 'champ';
+      const title = meta ? ` title="${esc(meta)}"` : '';
+      return `<span class="${cls}"${title}>${esc(p.champ)}</span>`;
     };
     return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
@@ -1290,8 +1342,12 @@ function detailsHTML(g, key = 'x', rid) {
         // MVP/ACE and the flag/duo/streak/cspm chips all live in the Player cell's chip group —
         // keeping the other columns plain text is what makes the fixed-width alignment hold up.
         const nameCell = `<span class="pcell"><span class="pname">${nameLink(p.n)}</span>${badge}${chips}</span>`;
-        // Season winrate appended dim, only once there's a real sample (20+ games) behind it.
-        const rankCell = esc(p.rank) + (p.seasonGames >= 20 ? ` <span class="dim">· ${p.wr}% (${p.seasonGames}g)</span>` : '');
+        // v4.18: full unabbreviated form ("Emerald I · 50 LP · 51%") — rankDetailLabel above,
+        // shared with (built on the same parseRank as) the matchup rows' compact tag. Season
+        // winrate shows whenever it exists (wr is null only when seasonGames is 0) — no longer
+        // gated behind a 20-game sample floor, matching the matchup-row tag's "missing wr -> rank
+        // only" rule instead of silently hiding a real (if small-sample) number.
+        const rankCell = esc(rankDetailLabel(p.rank, p.wr));
         return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + nameCell + '</td><td>' + rankCell + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
           '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') + '</td></tr>';

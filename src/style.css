@@ -73,6 +73,11 @@ td.you + td.you { border-left:none !important; }
 .badge-ace { color:#c77dff; }
 .champ-c { width:1%; white-space:nowrap; }
 .champ { font-weight:700; }
+/* v4.18: champion meta hover — dashed underline + help cursor signals "hover for more" without
+   adding any visible chrome to an already-tight lane row. Only applied when lib/champstats.mjs
+   actually has data for this champ (see champMetaTitle in src/main.js) — a champ missing from the
+   snapshot renders as plain .champ text, no dashed underline implying a tooltip that isn't there. */
+.champ-meta { border-bottom:1px dashed var(--dim); cursor:help; }
 .pcell { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .pname { white-space:nowrap; }
 .plink { color:inherit; text-decoration:none; cursor:pointer; }
