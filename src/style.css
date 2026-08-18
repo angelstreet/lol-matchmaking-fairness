@@ -181,6 +181,13 @@ td.you + td.you { border-left:none !important; }
 .chip.synergy-neg { color:var(--bad); border-color:var(--bad); }
 .chip.synergy-dim { color:var(--dim); }
 .bot-synergy-compare { margin-top:3px; font-size:11px; }
+/* v4.21: DRAFT verdict badge — champ-select quality, deliberately a smaller/quieter line than the
+   fairness badge above it (no pill background, just colored text) so it reads as a secondary,
+   related-but-distinct signal rather than competing with the matchmaking verdict for attention. */
+.draft-badge { margin-top:3px; font-size:11px; font-weight:700; }
+.draft-good { color:var(--ok); }
+.draft-bad { color:var(--bad); }
+.draft-even { color:var(--dim); font-weight:400; }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }

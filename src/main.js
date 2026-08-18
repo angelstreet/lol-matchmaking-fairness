@@ -261,6 +261,20 @@ const verdictTitle = (v, dir, tooltip) => {
   if (isFairVerdict(v)) return '';
   return dir === 'against' ? "The lobby was stacked in the enemy team's favor" : dir === 'favor' ? "The lobby was stacked in your team's favor" : 'Re-analyze for updated verdict';
 };
+// v4.21: the DRAFT verdict — champ-select quality (counter picks, bot synergy), entirely separate
+// from the matchmaking verdict above. Card-level only (not shown on list rows — those keep just
+// the fairness badge, per the same "row is a quick scan, card is the detail" split the matchup
+// table itself already follows). Legacy entries analyzed before this split have no g.draft field
+// at all; net===0 (nothing fired) renders nothing either way — never a bogus "DRAFT · EVEN" badge
+// for a game where no draft factor actually mattered.
+const draftBadgeHTML = draft => {
+  if (!draft || draft.net === 0) return '';
+  const cls = draft.verdict === 'GOOD' ? 'draft-good' : draft.verdict === 'BAD' ? 'draft-bad' : 'draft-even';
+  const sign = draft.net >= 0 ? '+' : '';
+  const label = draft.verdict === 'EVEN' ? 'DRAFT · EVEN' : `DRAFT · ${draft.verdict} ${sign}${draft.net}`;
+  const title = draft.tooltip || 'Champ-select factors (counters, bot synergy) — separate from the matchmaking verdict above';
+  return `<div class="draft-badge ${cls}" title="${esc(title)}">${esc(label)}</div>`;
+};
 let CTX = { riotId: '', region: 'euw' };
 
 // ---- bookmarks: localStorage always; synced to the Clerk account when signed in ----
@@ -1373,7 +1387,7 @@ function matchupHTML(g, rid) {
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue, g.autofillCounts?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}${botSynergyCompareHTML()}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red, g.autofillCounts?.red)}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue, g.autofillCounts?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}${botSynergyCompareHTML()}${draftBadgeHTML(g.draft)}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red, g.autofillCounts?.red)}</b></td></tr>
   </table>`;
 }
 
