@@ -74,6 +74,7 @@ VITE_CLERK_PUBLISHABLE_KEY=pk_... npx vite
 - Spectator data has no assigned roles — live-game positions are inferred from each player's recent history and labeled as such.
 - The GA score and verdicts are **heuristics**: a "NOT OK" lobby can still be won; the point is knowing when the queue — not you — decided the game.
 - Tighten CORS / quotas before heavy public use, and mind [Riot's API policies](https://developer.riotgames.com/policies/general) beyond personal use.
+- Champion-meta and bot-lane-synergy data (`lib/champstats.mjs`, `lib/duosynergy.mjs`) are static op.gg snapshots — refresh them once per patch with `node scripts/refresh-snapshots.mjs`.
 
 ## License
 
