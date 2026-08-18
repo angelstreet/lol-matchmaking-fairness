@@ -267,13 +267,27 @@ const verdictTitle = (v, dir, tooltip) => {
 // table itself already follows). Legacy entries analyzed before this split have no g.draft field
 // at all; net===0 (nothing fired) renders nothing either way — never a bogus "DRAFT · EVEN" badge
 // for a game where no draft factor actually mattered.
-const draftBadgeHTML = draft => {
+// v4.22: merged into ONE bordered pill — previously two stacked plain-text lines ("bot synergy
+// +2.3% vs +3.8%" then "DRAFT · EVEN") read as two unrelated rows under the fairness badge.
+// `components` is the caller-built list of terse factor strings (countered-lane notes, the bot
+// synergy comparison) — folded inline after an em-dash when the whole line stays within
+// DRAFT_PILL_INLINE_BUDGET chars, otherwise the pill collapses to "details on hover" and the full
+// breakdown lives in the tooltip only (draft.tooltip, from the engine).
+const DRAFT_PILL_INLINE_BUDGET = 60;
+const draftPillHTML = (draft, components) => {
   if (!draft || draft.net === 0) return '';
   const cls = draft.verdict === 'GOOD' ? 'draft-good' : draft.verdict === 'BAD' ? 'draft-bad' : 'draft-even';
   const sign = draft.net >= 0 ? '+' : '';
-  const label = draft.verdict === 'EVEN' ? 'DRAFT · EVEN' : `DRAFT · ${draft.verdict} ${sign}${draft.net}`;
-  const title = draft.tooltip || 'Champ-select factors (counters, bot synergy) — separate from the matchmaking verdict above';
-  return `<div class="draft-badge ${cls}" title="${esc(title)}">${esc(label)}</div>`;
+  // v4.22: engine already rounds draft.net to 1 decimal, but display-side rounding shouldn't
+  // depend on that staying true forever (or on a legacy cached entry predating it) — fmt1 here
+  // too, same as every other computed-delta render site.
+  const verdictLabel = draft.verdict === 'EVEN' ? 'DRAFT · EVEN' : `DRAFT · ${draft.verdict} ${sign}${fmt1(draft.net)}`;
+  const compStr = (components || []).filter(Boolean).join(' · ');
+  const fits = compStr && (verdictLabel.length + 3 + compStr.length) <= DRAFT_PILL_INLINE_BUDGET;
+  const compTail = compStr ? (fits ? compStr : 'details on hover') : '';
+  const title = draft.tooltip || (compStr ? `${compStr} — champ select, not matchmaking` : 'Champ-select factors (counters, bot synergy) — separate from the matchmaking verdict above');
+  const tail = compTail ? `<span class="draft-comp"> — ${esc(compTail)}</span>` : '';
+  return `<div class="draft-pill ${cls}" title="${esc(title)}"><span class="draft-verdict">${esc(verdictLabel)}</span>${tail}</div>`;
 };
 let CTX = { riotId: '', region: 'euw' };
 
@@ -1059,6 +1073,12 @@ function botSynergyOf(allPlayers, team) {
 }
 const BOT_SYNERGY_LANE_CAP = 4;
 const clampBotSynergy = delta => Math.max(-BOT_SYNERGY_LANE_CAP, Math.min(BOT_SYNERGY_LANE_CAP, delta));
+// v4.22: shared "at most 1 decimal, no trailing .0" formatter — every display site that renders a
+// computed (not stored-integer) delta funnels through this, so a float tail like
+// "6.437000000000012" (real bug, rank-gap/bot-synergy fractional deltas leaking straight into the
+// lane Favored column) can't happen anywhere. toFixed(1) rounds to one decimal as a string; the
+// trailing "/\.0$/" strip is purely cosmetic (a real +4.0% reads better as +4%, still exact).
+const fmt1 = v => v.toFixed(1).replace(/\.0$/, '');
 // Chip for the BOTTOM/UTILITY rows: "duo +2.4%" — green when the pairing clears +1% over the
 // champs' own solo winrates, red when it's -1% or worse, dim in the narrow band between (real,
 // but not a strong enough signal to call out visually). Games count formatted compactly (12k) —
@@ -1068,9 +1088,9 @@ function botSynergyChipHTML(synergy) {
   if (!synergy) return '';
   const cls = synergy.delta >= 1 ? 'synergy-pos' : synergy.delta <= -1 ? 'synergy-neg' : 'synergy-dim';
   const sign = synergy.delta >= 0 ? '+' : '';
-  const gamesLabel = synergy.games >= 1000 ? `${(synergy.games / 1000).toFixed(1)}k` : `${synergy.games}`;
-  const title = `${synergy.adcChamp}+${synergy.suppChamp}: ${synergy.wr.toFixed(1)}% over ${gamesLabel} games — ${sign}${synergy.delta.toFixed(1)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
-  return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${synergy.delta.toFixed(1)}%</span>`;
+  const gamesLabel = synergy.games >= 1000 ? `${fmt1(synergy.games / 1000)}k` : `${synergy.games}`;
+  const title = `${synergy.adcChamp}+${synergy.suppChamp}: ${fmt1(synergy.wr)}% over ${gamesLabel} games — ${sign}${fmt1(synergy.delta)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
+  return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${fmt1(synergy.delta)}%</span>`;
 }
 
 // v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
@@ -1237,25 +1257,30 @@ function laneEvenNote(b, r, allPlayers) {
 function laneVerdict(a, b, riskNote, favorTooltip, skipEvenSide) {
   if (a == null || b == null) return '<span class="dim">·</span>';
   const d = a - b, ad = Math.abs(d);
+  // v4.22: band thresholds (<=5, >18) stay against the RAW ad — rank gap and bot-synergy deltas
+  // (both fractional) can shift ad by a fraction of a point, and rounding before the threshold
+  // check could flip a lane's band right at the boundary. Only the DISPLAYED number is rounded
+  // (adDisplay) — real bug: "BLUE +6.437000000000012" leaking a float tail straight into the UI.
+  const adDisplay = Math.round(ad);
   // v4 (backtest-driven): EVEN band narrowed 8 -> 5 — a backtest of 17 cached analyses found
   // EVEN-band lanes were only right 27% of the time, the widest miss of any band. Favored is now
   // 6-18 (heavy stays >=19, unchanged).
   if (ad <= 5) {
     if (skipEvenSide) {
       const side = d !== 0 ? (d > 0 ? 'blue' : 'red') : skipEvenSide;
-      const shown = d !== 0 ? ad : 1; // exact wash: non-autofilled side still gets a nominal +1
+      const shown = d !== 0 ? adDisplay : 1; // exact wash: non-autofilled side still gets a nominal +1
       const sideLabel = side === 'blue' ? 'Blue' : 'Red';
       const title = favorTooltip || riskNote || `${sideLabel} side favored: one-sided autofill risk keeps this lane from reading even`;
       return `<span class="lv-${side}" title="${esc(title)}">${side.toUpperCase()} +${shown}</span>`;
     }
-    const evenTitle = riskNote || `Even matchup — pre-game GA gap of only ${ad} points`;
+    const evenTitle = riskNote || `Even matchup — pre-game GA gap of only ${adDisplay} points`;
     return `<span class="lv-even" title="${esc(evenTitle)}">EVEN</span>`;
   }
   const heavy = ad > 18;
   const strength = heavy ? 'HEAVILY favored' : 'favored';
   const side = d > 0 ? 'blue' : 'red', sideLabel = side === 'blue' ? 'Blue' : 'Red';
-  const title = favorTooltip || `${sideLabel} side ${strength}: +${ad} GA advantage before the game started`;
-  return `<span class="lv-${side}" title="${esc(title)}">${side.toUpperCase()} +${ad}</span>`;
+  const title = favorTooltip || `${sideLabel} side ${strength}: +${adDisplay} GA advantage before the game started`;
+  return `<span class="lv-${side}" title="${esc(title)}">${side.toUpperCase()} +${adDisplay}</span>`;
 }
 
 // Which side (if any) a lane is favored toward, for tinting that side's cells — kept separate
@@ -1302,6 +1327,11 @@ function matchupHTML(g, rid) {
     const chips = badgeHTML(p) + chipsHTML(p, oppChamp) + (extraChip || '');
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
+  // v4.22: draft-pill component strings collected as they're derived — countered-lane notes here
+  // (as each lane is walked, reusing the exact bCounter/rCounter values already computed per-lane
+  // rather than a second netCounter pass), the bot-synergy comparison further below — to feed the
+  // merged DRAFT pill's terse inline component list.
+  const draftComponents = [];
   const rows = ROLES.map(role => {
     const b = by('blue', role), r = by('red', role);
     if (!b && !r) return '';
@@ -1313,6 +1343,8 @@ function matchupHTML(g, rid) {
     // the raw GAs happened to be close. v4.5: role-weighted (roleCounterPenalty above), not flat.
     const bCounter = (b && r) ? roleCounterPenalty(b.champ, r.champ, role) : 0;
     const rCounter = (b && r) ? roleCounterPenalty(r.champ, b.champ, role) : 0;
+    if (bCounter > 0) draftComponents.push(`${b.champ} countered by ${r.champ} −${bCounter}`);
+    if (rCounter > 0) draftComponents.push(`${r.champ} countered by ${b.champ} −${rCounter}`);
     // v4.14: "pre-duo" GA (risk+counter-adjusted, no duo bonus yet) is what the adaptive
     // jungle-duo bonus's deficit is measured against — computed here, before duoAdjOf, and passed
     // into it (mirrors lib/riot.mjs's laneAdj: bPreDuo/rPreDuo before duoLaneBonusFor).
@@ -1376,18 +1408,18 @@ function matchupHTML(g, rid) {
     if (autofillN > 0) tags.push(`<span class="af-count" title="${autofillN} autofilled player${autofillN === 1 ? '' : 's'} on this team — off-role risk, weighed into the net">${autofillN} autofill</span>`);
     return `<span title="65% team average + 35% average of the top 2 GAs">team GA</span> ${teamGa ?? '–'}` + (tags.length ? ` (${tags.join(' · ')})` : '');
   };
-  // v4.20: side-by-side bot-synergy comparison in the TEAM footer's middle cell (same spot
-  // winProbHTML already uses for a comparison that spans both sides) — only when BOTH teams have
-  // data, since a one-sided "+2.4% vs no data" reads as a false equivalence.
-  const botSynergyCompareHTML = () => {
-    if (!blueBotSynergy || !redBotSynergy) return '';
-    const fmt = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-    return `<div class="bot-synergy-compare dim" title="Bot-lane duo synergy vs each champ's own solo winrate (patch ${DUO_SYNERGY_PATCH})">bot synergy ${fmt(blueBotSynergy.delta)} vs ${fmt(redBotSynergy.delta)}</div>`;
-  };
+  // v4.22: side-by-side bot-synergy comparison folds into the merged DRAFT pill's inline
+  // component list below (was its own standalone line — see draftPillHTML's doc comment) — only
+  // added when BOTH teams have data, since a one-sided "+2.4% vs no data" reads as a false
+  // equivalence.
+  if (blueBotSynergy && redBotSynergy) {
+    const fmt = v => `${v >= 0 ? '+' : ''}${fmt1(v)}%`;
+    draftComponents.push(`bot synergy ${fmt(blueBotSynergy.delta)} vs ${fmt(redBotSynergy.delta)}`);
+  }
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue, g.autofillCounts?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}${botSynergyCompareHTML()}${draftBadgeHTML(g.draft)}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red, g.autofillCounts?.red)}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue, g.autofillCounts?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}${draftPillHTML(g.draft, draftComponents)}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red, g.autofillCounts?.red)}</b></td></tr>
   </table>`;
 }
 

@@ -180,14 +180,19 @@ td.you + td.you { border-left:none !important; }
 .chip.synergy-pos { color:var(--ok); border-color:var(--ok); }
 .chip.synergy-neg { color:var(--bad); border-color:var(--bad); }
 .chip.synergy-dim { color:var(--dim); }
-.bot-synergy-compare { margin-top:3px; font-size:11px; }
-/* v4.21: DRAFT verdict badge — champ-select quality, deliberately a smaller/quieter line than the
-   fairness badge above it (no pill background, just colored text) so it reads as a secondary,
-   related-but-distinct signal rather than competing with the matchmaking verdict for attention. */
-.draft-badge { margin-top:3px; font-size:11px; font-weight:700; }
-.draft-good { color:var(--ok); }
-.draft-bad { color:var(--bad); }
-.draft-even { color:var(--dim); font-weight:400; }
+/* v4.22: DRAFT verdict — champ-select quality, its own bordered pill (was two stacked plain-text
+   lines: a "bot synergy X vs Y" readout, then a separate colored "DRAFT · EVEN" line — merged into
+   one block so it reads as a single distinct signal under the fairness badge/win-prob line rather
+   than two loose rows). Border color follows the verdict (GOOD/BAD/EVEN); the verdict text inside
+   is colored the same way, the trailing " — components" tail stays dim regardless. */
+.draft-pill { display:inline-flex; align-items:center; margin-top:5px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; font-size:11px; white-space:nowrap; }
+.draft-pill.draft-good { border-color:var(--ok); }
+.draft-pill.draft-bad { border-color:var(--bad); }
+.draft-verdict { font-weight:700; }
+.draft-pill.draft-good .draft-verdict { color:var(--ok); }
+.draft-pill.draft-bad .draft-verdict { color:var(--bad); }
+.draft-pill.draft-even .draft-verdict { color:var(--dim); font-weight:400; }
+.draft-comp { color:var(--dim); }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }
