@@ -272,8 +272,17 @@ const verdictTitle = (v, dir, tooltip) => {
 // `components` is the caller-built list of terse factor strings (countered-lane notes, the bot
 // synergy comparison) — folded inline after an em-dash when the whole line stays within
 // DRAFT_PILL_INLINE_BUDGET chars, otherwise the pill collapses to "details on hover" and the full
-// breakdown lives in the tooltip only (draft.tooltip, from the engine).
+// breakdown lives in the tooltip only.
 const DRAFT_PILL_INLINE_BUDGET = 60;
+// v4.23: the tooltip must explain what the verdict MEANS, not just restate the component list — a
+// bare "Ashe countered by Caitlyn -8" told a player WHAT fired but not what GOOD/BAD/EVEN actually
+// means for their game, or whose "fault" it is (BAD is a drafting mistake by the players, not a
+// Riot matchmaking failure — worth saying explicitly so it doesn't read as another fairness gripe).
+const DRAFT_VERDICT_EXPLAIN = {
+  GOOD: 'Your team gained an edge at champion select (counters/synergy) — before the game even started.',
+  BAD: "Your team lost champion select — picked into counters or a weak duo. This is on the players, not Riot's matchmaking.",
+  EVEN: 'Champion select gave neither team a meaningful edge — the picks roughly cancel out.',
+};
 const draftPillHTML = (draft, components) => {
   if (!draft || draft.net === 0) return '';
   const cls = draft.verdict === 'GOOD' ? 'draft-good' : draft.verdict === 'BAD' ? 'draft-bad' : 'draft-even';
@@ -285,7 +294,10 @@ const draftPillHTML = (draft, components) => {
   const compStr = (components || []).filter(Boolean).join(' · ');
   const fits = compStr && (verdictLabel.length + 3 + compStr.length) <= DRAFT_PILL_INLINE_BUDGET;
   const compTail = compStr ? (fits ? compStr : 'details on hover') : '';
-  const title = draft.tooltip || (compStr ? `${compStr} — champ select, not matchmaking` : 'Champ-select factors (counters, bot synergy) — separate from the matchmaking verdict above');
+  // v4.23: explanation sentence first, components (if any) after — replaces the old
+  // draft.tooltip/component-list-only title.
+  const explain = DRAFT_VERDICT_EXPLAIN[draft.verdict] || DRAFT_VERDICT_EXPLAIN.EVEN;
+  const title = compStr ? `${explain} ${compStr}` : explain;
   const tail = compTail ? `<span class="draft-comp"> — ${esc(compTail)}</span>` : '';
   return `<div class="draft-pill ${cls}" title="${esc(title)}"><span class="draft-verdict">${esc(verdictLabel)}</span>${tail}</div>`;
 };
