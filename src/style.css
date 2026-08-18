@@ -172,6 +172,15 @@ td.you + td.you { border-left:none !important; }
 /* Compact "55–45" form used next to a row's badge/one-liner once that row has real entry data
    (post-analyze) — dim by default like the rest of the row's secondary text. */
 .wp-compact { color:var(--dim); font-size:11px; white-space:nowrap; }
+/* v4.20: bot-lane duo synergy chip ("duo +2.4%") on the BOTTOM/UTILITY rows — green when the
+   pairing clears +1% over the champs' own solo winrates, red at -1% or worse, dim in the narrow
+   band between (real, just not a strong enough signal to call out). Same green/red vocabulary as
+   .chip.wr-hi/.wr-lo elsewhere in this file. The TEAM footer's side-by-side comparison line stays
+   plain dim — it's a factual readout, not itself a favored/unfavored call. */
+.chip.synergy-pos { color:var(--ok); border-color:var(--ok); }
+.chip.synergy-neg { color:var(--bad); border-color:var(--bad); }
+.chip.synergy-dim { color:var(--dim); }
+.bot-synergy-compare { margin-top:3px; font-size:11px; }
 .matchup .rgt { text-align:right; }
 .matchup .teamrow { background:rgba(255,255,255,.03); }
 .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }

@@ -1,6 +1,7 @@
 import './style.css';
 import { netCounter } from '../lib/counters.mjs';
 import { STATS as CHAMP_STATS, PATCH as CHAMP_STATS_PATCH } from '../lib/champstats.mjs';
+import { PAIRS as DUO_PAIRS, PATCH as DUO_SYNERGY_PATCH } from '../lib/duosynergy.mjs';
 
 // Same-origin API in production (Vercel functions); Vite proxies /api in dev.
 const API = import.meta.env.VITE_API_URL || '';
@@ -1023,6 +1024,41 @@ function champMetaTitle(champ) {
   return `${champ} — WR ${s.wr}% · pick ${s.pick}% · ban ${s.ban}% (patch ${CHAMP_STATS_PATCH})`;
 }
 
+// v4.20: mirrors lib/riot.mjs's botSynergyDelta/botSynergyOf — bot-lane (ADC+SUPPORT) duo
+// synergy from lib/duosynergy.mjs's per-patch snapshot, net of each champ's own solo winrate
+// (lib/champstats.mjs) so what's left is specifically "does this PAIRING work". Returns null
+// (not 0) when the pair or either champ's solo WR is missing — a missing pair means no data, not
+// confirmed-neutral synergy. allPlayers/team here use this app's 'blue'/'red' team labels, not
+// the engine's 100/200.
+function botSynergyDelta(adcChamp, suppChamp) {
+  const pair = DUO_PAIRS[`${adcChamp}+${suppChamp}`];
+  if (!pair) return null;
+  const adcWr = CHAMP_STATS[adcChamp]?.wr, suppWr = CHAMP_STATS[suppChamp]?.wr;
+  if (adcWr == null || suppWr == null) return null;
+  return { delta: pair.wr - (adcWr + suppWr) / 2, wr: pair.wr, games: pair.games, adcChamp, suppChamp };
+}
+function botSynergyOf(allPlayers, team) {
+  const adc = allPlayers?.find(p => p.team === team && p.pos === 'BOTTOM');
+  const supp = allPlayers?.find(p => p.team === team && p.pos === 'UTILITY');
+  if (!adc || !supp) return null;
+  return botSynergyDelta(adc.champ, supp.champ);
+}
+const BOT_SYNERGY_LANE_CAP = 4;
+const clampBotSynergy = delta => Math.max(-BOT_SYNERGY_LANE_CAP, Math.min(BOT_SYNERGY_LANE_CAP, delta));
+// Chip for the BOTTOM/UTILITY rows: "duo +2.4%" — green when the pairing clears +1% over the
+// champs' own solo winrates, red when it's -1% or worse, dim in the narrow band between (real,
+// but not a strong enough signal to call out visually). Games count formatted compactly (12k) —
+// this can be a small sample for off-meta ADCs (lib/duosynergy.mjs's header explains why), so the
+// raw count is always in the tooltip for the reader to judge, never hidden.
+function botSynergyChipHTML(synergy) {
+  if (!synergy) return '';
+  const cls = synergy.delta >= 1 ? 'synergy-pos' : synergy.delta <= -1 ? 'synergy-neg' : 'synergy-dim';
+  const sign = synergy.delta >= 0 ? '+' : '';
+  const gamesLabel = synergy.games >= 1000 ? `${(synergy.games / 1000).toFixed(1)}k` : `${synergy.games}`;
+  const title = `${synergy.adcChamp}+${synergy.suppChamp}: ${synergy.wr.toFixed(1)}% over ${gamesLabel} games — ${sign}${synergy.delta.toFixed(1)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
+  return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${synergy.delta.toFixed(1)}%</span>`;
+}
+
 // v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
 // their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.14: a
 // jungle-inclusive duo's bonus is now ADAPTIVE (mirrors lib/riot.mjs's jungleDuoBonus/duoLaneInfo)
@@ -1225,13 +1261,19 @@ function laneFavor(a, b, skipEvenSide) {
 function matchupHTML(g, rid) {
   const meName = (rid || CTX.riotId).replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
+  // v4.20: one bot-lane synergy value per TEAM (its BOTTOM+UTILITY champion pair), computed once
+  // and reused for both of that team's bot-lane rows (the chip shown on each, and the lane-level
+  // GA adjustment below) and the TEAM footer's side-by-side comparison.
+  const blueBotSynergy = botSynergyOf(g.players, 'blue');
+  const redBotSynergy = botSynergyOf(g.players, 'red');
   // Two lines per player: line one is #place + name + this game's KDA + bold GA; line two is
   // every chip (MVP/ACE leading, then flags/duo/streak/cs). Same element order on both sides —
   // the red column's .rgt text-align (and .p-chips' justify-content override) handles the
   // mirroring, so there's no need to special-case the DOM order per side anymore. Lane-favor
   // severity (favored/heavily favored) is NOT shown here — it's the Favored-column value's own
-  // tooltip below (laneVerdict), so it isn't duplicated per player.
-  const cellName = (p, oppChamp) => {
+  // tooltip below (laneVerdict), so it isn't duplicated per player. extraChip (v4.20): the bot
+  // synergy chip on BOTTOM/UTILITY rows, appended after the flag/duo/streak/cs chip group.
+  const cellName = (p, oppChamp, extraChip) => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
     const name = `<span class="pname">${nameLink(p.n)}</span>`;
@@ -1243,7 +1285,7 @@ function matchupHTML(g, rid) {
     const rt = rankTag(p.rank, p.wr, p.seasonGames);
     const rank = rt ? `<span class="rank-tag dim" title="${esc(rt.title)}">${esc(rt.label)}</span>` : '';
     const main = [place, name, kda, ga, rank].filter(Boolean).join(' ');
-    const chips = badgeHTML(p) + chipsHTML(p, oppChamp);
+    const chips = badgeHTML(p) + chipsHTML(p, oppChamp) + (extraChip || '');
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
   const rows = ROLES.map(role => {
@@ -1265,8 +1307,14 @@ function matchupHTML(g, rid) {
     // v4.17: direct head-to-head rank gap between these two lane opponents (rankGapAdj, mirrors
     // lib/riot.mjs) — added ONCE, on blue's side only, so bAdj-rAdj (wherever it's implicitly
     // diffed below) carries the term exactly once, same as the engine's delta computation.
-    const bAdj = bPreDuo != null ? bPreDuo + duoAdjOf(b, g.players, bPreDuo, rPreDuo) + rankGapAdj(b.rank, r?.rank) : null;
-    const rAdj = rPreDuo != null ? rPreDuo + duoAdjOf(r, g.players, rPreDuo, bPreDuo) : null;
+    let bAdj = bPreDuo != null ? bPreDuo + duoAdjOf(b, g.players, bPreDuo, rPreDuo) + rankGapAdj(b.rank, r?.rank) : null;
+    let rAdj = rPreDuo != null ? rPreDuo + duoAdjOf(r, g.players, rPreDuo, bPreDuo) : null;
+    // v4.20: bot-lane duo synergy — each side's own (capped) value added to both its BOTTOM and
+    // UTILITY lane adjustments, mirroring lib/riot.mjs's laneAdj exactly.
+    if (role === 'BOTTOM' || role === 'UTILITY') {
+      if (bAdj != null && blueBotSynergy) bAdj += clampBotSynergy(blueBotSynergy.delta);
+      if (rAdj != null && redBotSynergy) rAdj += clampBotSynergy(redBotSynergy.delta);
+    }
     // v4.9: a lane where EXACTLY one side carries autofill risk (bRisk/rRisk above, smurf-exempt
     // as always) must never read EVEN — that side has an inherent edge even if the risk-adjusted
     // numbers happen to land close. skipEvenSide names the non-autofilled side, used as the
@@ -1293,7 +1341,10 @@ function matchupHTML(g, rid) {
       const title = meta ? ` title="${esc(meta)}"` : '';
       return `<span class="${cls}"${title}>${esc(p.champ)}</span>`;
     };
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    const isBotRow = role === 'BOTTOM' || role === 'UTILITY';
+    const bSynergyChip = isBotRow ? botSynergyChipHTML(blueBotSynergy) : '';
+    const rSynergyChip = isBotRow ? botSynergyChipHTML(redBotSynergy) : '';
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
@@ -1311,10 +1362,18 @@ function matchupHTML(g, rid) {
     if (autofillN > 0) tags.push(`<span class="af-count" title="${autofillN} autofilled player${autofillN === 1 ? '' : 's'} on this team — off-role risk, weighed into the net">${autofillN} autofill</span>`);
     return `<span title="65% team average + 35% average of the top 2 GAs">team GA</span> ${teamGa ?? '–'}` + (tags.length ? ` (${tags.join(' · ')})` : '');
   };
+  // v4.20: side-by-side bot-synergy comparison in the TEAM footer's middle cell (same spot
+  // winProbHTML already uses for a comparison that spans both sides) — only when BOTH teams have
+  // data, since a one-sided "+2.4% vs no data" reads as a false equivalence.
+  const botSynergyCompareHTML = () => {
+    if (!blueBotSynergy || !redBotSynergy) return '';
+    const fmt = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+    return `<div class="bot-synergy-compare dim" title="Bot-lane duo synergy vs each champ's own solo winrate (patch ${DUO_SYNERGY_PATCH})">bot synergy ${fmt(blueBotSynergy.delta)} vs ${fmt(redBotSynergy.delta)}</div>`;
+  };
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
     ${rows}
-    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue, g.autofillCounts?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red, g.autofillCounts?.red)}</b></td></tr>
+    <tr class="teamrow"><td colspan="2"><b><span class="tm-blue">TEAM</span> · ${blueWon ? 'win' : 'loss'} · ${teamGaText(gB, g.duoBonus?.blue, g.autofillCounts?.blue)}</b></td><td class="mid-v"><span class="badge ${verdictCls(g.matchmaking, g.direction)}" title="${esc(verdictTitle(g.matchmaking, g.direction, g.verdictTooltip))}">${verdictLabel(g.matchmaking, g.direction)}</span>${winProbHTML(g.winProb)}${botSynergyCompareHTML()}</td><td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · ${blueWon ? 'loss' : 'win'} · ${teamGaText(gR, g.duoBonus?.red, g.autofillCounts?.red)}</b></td></tr>
   </table>`;
 }
 
