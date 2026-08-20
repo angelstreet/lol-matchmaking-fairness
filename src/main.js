@@ -1317,14 +1317,17 @@ function matchupHTML(g, rid) {
   // GA adjustment below) and the TEAM footer's side-by-side comparison.
   const blueBotSynergy = botSynergyOf(g.players, 'blue');
   const redBotSynergy = botSynergyOf(g.players, 'red');
-  // Two lines per player: line one is #place + name + this game's KDA + bold GA; line two is
-  // every chip (MVP/ACE leading, then flags/duo/streak/cs). Same element order on both sides —
-  // the red column's .rgt text-align (and .p-chips' justify-content override) handles the
-  // mirroring, so there's no need to special-case the DOM order per side anymore. Lane-favor
-  // severity (favored/heavily favored) is NOT shown here — it's the Favored-column value's own
-  // tooltip below (laneVerdict), so it isn't duplicated per player. extraChip (v4.20): the bot
-  // synergy chip on BOTTOM/UTILITY rows, appended after the flag/duo/streak/cs chip group.
-  const cellName = (p, oppChamp, extraChip) => {
+  // Two lines per player: line one is #place + name + this game's KDA + bold GA (+ rank tag);
+  // line two is every chip (MVP/ACE leading, then flags/duo/streak/cs). v4.26: RED's line one now
+  // mirrors BLUE's around the table's center Favored column for symmetric left-right reading
+  // (user-specified exact order) — BLUE keeps place/name/kda/GA/rank left-to-right with the rank
+  // tag pushed to the cell's own far edge; RED clusters rank/place/GA/kda toward the CENTER
+  // (nearest the Favored column) and pushes the player NAME out to the table's outer edge instead
+  // — same "edge" flex-push mechanism (.p-cell-edge, see CSS), mirrored which element gets pushed.
+  // Lane-favor severity (favored/heavily favored) is NOT shown here — it's the Favored-column
+  // value's own tooltip below (laneVerdict), so it isn't duplicated per player. extraChip (v4.20):
+  // the bot synergy chip on BOTTOM/UTILITY rows, appended after the flag/duo/streak/cs chip group.
+  const cellName = (p, oppChamp, extraChip, side) => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
     const name = `<span class="pname">${nameLink(p.n)}</span>`;
@@ -1335,7 +1338,21 @@ function matchupHTML(g, rid) {
     // tag.
     const rt = rankTag(p.rank, p.wr, p.seasonGames);
     const rank = rt ? `<span class="rank-tag dim" title="${esc(rt.title)}">${esc(rt.label)}</span>` : '';
-    const main = [place, name, kda, ga, rank].filter(Boolean).join(' ');
+    // v4.25/v4.26: the non-pushed content stays bundled in one inline span (p-main-info) so
+    // .p-main can be a flex row without collapsing the plain-space joins between its tokens —
+    // flexbox only treats non-whitespace text runs as their own anonymous item, so a bare " "
+    // joiner between two sibling spans would otherwise vanish once the parent becomes
+    // display:flex. Whichever single element is meant to sit at the cell's far edge (rank tag on
+    // blue, player name on red) is wrapped in .p-cell-edge, the flex row's other child, pushed
+    // there via margin-left:auto.
+    let main;
+    if (side === 'red') {
+      const cluster = [rank, place, ga, kda].filter(Boolean).join(' ');
+      main = `<span class="p-main-info">${cluster}</span><span class="p-cell-edge">${name}</span>`;
+    } else {
+      const info = [place, name, kda, ga].filter(Boolean).join(' ');
+      main = `<span class="p-main-info">${info}</span>` + (rank ? `<span class="p-cell-edge">${rank}</span>` : '');
+    }
     const chips = badgeHTML(p) + chipsHTML(p, oppChamp) + (extraChip || '');
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
@@ -1402,7 +1419,7 @@ function matchupHTML(g, rid) {
     const isBotRow = role === 'BOTTOM' || role === 'UTILITY';
     const bSynergyChip = isBotRow ? botSynergyChipHTML(blueBotSynergy) : '';
     const rSynergyChip = isBotRow ? botSynergyChipHTML(redBotSynergy) : '';
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip)}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip, 'blue')}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip, 'red')}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');

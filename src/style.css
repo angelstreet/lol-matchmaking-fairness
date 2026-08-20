@@ -199,11 +199,13 @@ td.you + td.you { border-left:none !important; }
 /* Autofill count in the TEAM footer (next to the duo suffix) — amber, same risk-family color as
    the autofill chip, since it's the same signal just surfaced at the team level. */
 .af-count { color:var(--mid); font-weight:400; }
-/* Each matchup player cell is two stacked lines: #place + name + game KDA + GA on line one,
-   every chip (MVP/ACE leading, then OTP/duo/flags/streak/cs/severity) on line two. Same element
-   order on both sides — no per-side DOM reversal needed. Red side LANE rows are left-aligned
-   like blue for scannability (names start at a consistent edge); only the TEAM footer row's
-   right cell keeps the .rgt right-alignment above, as a short bookend. */
+/* Each matchup player cell is two stacked lines: line one (see .p-main below) on top, every chip
+   (MVP/ACE leading, then OTP/duo/flags/streak/cs/severity) on line two. v4.26: line one's element
+   order now DOES differ per side — red mirrors blue around the table's center Favored column
+   (rank/place/GA/kda toward center, name at the outer edge) instead of the old "same order both
+   sides, just left-aligned" layout; see cellName in src/main.js and the .p-main/.p-cell-edge rules
+   below for the mechanism. The TEAM footer row's right cell separately keeps its own
+   .rgt right-alignment, as a short bookend — unrelated to this per-player mirroring. */
 .place { color:var(--dim); font-size:11px; font-weight:700; }
 /* v4.17: compact rank tag ("E4"/"P2"/"M") next to GA in the matchup rows — same dim/small
    treatment as .place so it reads as metadata, not a headline number. Hidden on mobile (see the
@@ -213,10 +215,28 @@ td.you + td.you { border-left:none !important; }
    even if a long name wraps the CELL as a whole, the tag itself stays intact rather than breaking
    mid-string. */
 .rank-tag { font-size:11px; font-weight:700; border:1px solid var(--line); border-radius:4px; padding:0 3px; white-space:nowrap; }
+/* v4.25/v4.26: .p-main is a flex row of exactly two children — the bundled "everything else"
+   (.p-main-info) and whichever single element sits at the cell's own far edge (.p-cell-edge),
+   pushed there via margin-left:auto so it lands flush right with whatever slack that row has
+   (shorter rows in the same column get more push, since the table's auto column width matches
+   the WIDEST row) instead of raggedly trailing right after whatever text happens to precede it.
+   v4.26: BLUE puts the rank tag at that edge (nearest the Favored column); RED instead mirrors
+   the whole row — rank/place/GA/kda cluster toward the Favored column, player NAME pushed to the
+   table's outer edge (see cellName in src/main.js) — same mechanism, different element pushed,
+   so both columns still read as a tidy edge-aligned line while red reads center-out symmetric
+   with blue. min-width:0 on the info bundle lets it shrink instead of forcing the row to
+   overflow; .pname's own max-width+ellipsis (below) still does the actual truncation. */
+.p-main { display:flex; align-items:baseline; gap:6px; }
+.p-main-info { min-width:0; }
+.p-main .p-cell-edge { margin-left:auto; flex-shrink:0; }
 .matchup .pname { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
 .p-chips { display:flex; gap:4px; flex-wrap:wrap; margin-top:3px; }
 .matchup tr:not(.teamrow) .rgt { text-align:left; }
-.matchup tr:not(.teamrow) .rgt .p-chips { justify-content:flex-start; }
+/* v4.26: red's chip line (MVP/ACE badge leading, then flags/duo/streak/cs) right-aligns to sit
+   under the player NAME now that .p-cell-edge pushes the name to red's outer edge instead of
+   chips trailing under whatever used to be on the left — keeps the badge visually adjacent to the
+   name, mirroring how blue's badge already sits directly under blue's (left-aligned) name. */
+.matchup tr:not(.teamrow) .rgt .p-chips { justify-content:flex-end; }
 /* BLUE/RED team tables share fixed column widths (via an identical <colgroup>) so they line
    up vertically. The Player cell is the one variable-content column — long "Name#TAG" plus a
    chip group — so it gets the max-width:0 + overflow trick to ellipsis instead of pushing the
