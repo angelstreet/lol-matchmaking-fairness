@@ -975,7 +975,15 @@ function mostFrequentChamp(games) {
 // Dragon's own "MonkeyKing"/"Fiddlesticks"/"Kaisa" style ids — verified against ddragon directly:
 // Wukong_0.jpg 404s, MonkeyKing_0.jpg is the real file; same id space lib/counters.mjs's header
 // documents), so no extra name-mapping is needed beyond what pStats() already normalizes server-side.
-const champSplashUrl = champ => `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${encodeURIComponent(champ)}_0.jpg`;
+// v4.29: FUNCTION declaration, not `const` — this exact mistake caused a real production TDZ
+// crash ("Cannot access 'champSplashUrl' before initialization"). updateBgSplash (which calls
+// this) is itself safely hoisted, but it's invoked SYNCHRONOUSLY at module-load time by
+// restoreLastSearch's IIFE whenever a cached lastSearch exists — i.e. for any returning user —
+// which runs well before a `const` declared this far down the file would have been evaluated by
+// the normal top-to-bottom pass. A `function` declaration hoists its full body, not just the
+// name, so it's safe to call from anywhere regardless of textual position — same lesson this
+// file already documents for winProbCompact/mostFrequentChamp/updateBgSplash itself.
+function champSplashUrl(champ) { return `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${encodeURIComponent(champ)}_0.jpg`; }
 // Preloads before committing to the CSS var, so a 404 (an unmapped/renamed champ id, or ddragon
 // hiccup) never flashes a broken background — "if the image 404s, stay plain" — and the plain-bg
 // default never blocks first render (this only ever runs after a search already has data).
