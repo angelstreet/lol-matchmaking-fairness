@@ -12,13 +12,21 @@
   /api/analyze for that match, fetched 2026-08-20). Demonstrates four proposed changes to the
   live matchup card design, requested for visual approval before any real implementation:
 
-    1. Side artwork rails (fixed, ~1600px+ viewport only) — Warwick splash art (user's OTP),
-       mirrored left/right, heavy dark gradient fading into the page background.
+    1. Full-page background art (body::before, fixed, cover) — Warwick splash art, darkened to
+       ~13% visibility under a solid dark overlay so it reads as ambiance, not wallpaper; cards
+       sit on their own fully-opaque --card color, so nothing loses readability. PRODUCTION NOTE:
+       this mockup hardcodes Warwick (the analyzed player's OTP champ in the real cached game) —
+       the real implementation would pick the splash DYNAMICALLY per analysis, from whichever
+       champion the analyzed player's data flags as their OTP (already computed today, see the
+       'otp' flag / lib/riot.mjs's gaScore — just needs wiring to a splash-art URL instead of
+       being hardcoded like it is here).
     2. Role icons + fixed lane order (TOP/JUNGLE/MID/ADC/SUPPORT) in the Favored column.
     3. Champion square icons (team-colored border) replacing the plain-text champ name in the
        outer champ-c columns — full champion name lives in the image's title tooltip now.
     4. Header branding: the official gold League of Legends wordmark (Wikimedia Commons) next
-       to the site title, plus a small UNOFFICIAL badge.
+       to the site title (title text itself trimmed to just "Matchmaking Fairness" — the
+       wordmark already carries the "League of Legends" branding, no need to say it twice),
+       plus a small UNOFFICIAL badge.
 
   Everything else (player cell layout incl. the v4.26 blue/red mirroring, chips, TEAM footer,
   FAIR/NOT FAIR badge, win%, DRAFT pill) reuses the exact class names and visual language of
@@ -38,17 +46,17 @@
   html, body { overflow-x:hidden; }
   body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; position:relative; }
 
-  /* ==== 1. Side artwork rails — fixed, hidden below 1600px, ~200-320px wide above it ==== */
-  .rail { position:fixed; top:0; bottom:0; width:min(320px, calc((100vw - 1200px) / 2 - 24px));
-    background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/Warwick_0.jpg');
-    background-size:cover; background-position:center 22%; z-index:0; display:none; }
-  .rail::after { content:''; position:absolute; inset:0;
-    background:
-      linear-gradient(to right, transparent 0%, var(--bg) 92%),
-      linear-gradient(to bottom, rgba(14,16,21,.5) 0%, rgba(14,16,21,.35) 40%, rgba(14,16,21,.88) 100%); }
-  .rail-left { left:0; }
-  .rail-right { right:0; transform:scaleX(-1); }
-  @media (min-width:1600px) { .rail { display:block; } }
+  /* ==== 1. Full-page background art — fixed, ~13% visible under a solid dark overlay ====
+     Stacking two background-images on the SAME layer (overlay drawn first = on top) composites
+     to "photo showing through the dark tint at (1 - overlay alpha) opacity" in one paint, no
+     separate ::after needed. .card below is already a fully OPAQUE solid color (not rgba), so
+     every card sits on 100% readable ground regardless of what's showing behind it — "may need a
+     more opaque card bg" turned out unnecessary once the overlay itself was dark enough. */
+  body::before { content:''; position:fixed; inset:0; z-index:0;
+    background-image:
+      linear-gradient(rgba(14,16,21,.87), rgba(14,16,21,.87)),
+      url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/Warwick_0.jpg');
+    background-size:cover; background-position:center 18%; }
 
   .wrap { max-width:1200px; margin:auto; position:relative; z-index:1; }
 
@@ -141,15 +149,12 @@
 
 <div class="mockup-banner">MOCKUP — not live</div>
 
-<div class="rail rail-left" aria-hidden="true"></div>
-<div class="rail rail-right" aria-hidden="true"></div>
-
 <div class="wrap">
   <div class="mock-header">
     <img class="lol-logo" src="https://upload.wikimedia.org/wikipedia/commons/d/d8/League_of_Legends_2019_vector.svg" alt="League of Legends">
-    <h1>LoL <span class="brand">Matchmaking Fairness</span> <span class="unofficial-badge">Unofficial</span></h1>
+    <h1><span class="brand">Matchmaking Fairness</span> <span class="unofficial-badge">Unofficial</span></h1>
   </div>
-  <div class="sub">Visual redesign mockup — side artwork rails, role icons, champion icons, header branding. One real cached game, for comparison against the live layout.</div>
+  <div class="sub">Visual redesign mockup — full-page background art, role icons, champion icons, header branding. One real cached game, for comparison against the live layout.</div>
 
   <div class="card open">
     <div class="head">
