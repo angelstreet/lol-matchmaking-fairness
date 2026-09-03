@@ -508,7 +508,12 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
   // box showing a name over a blank page. Both cases now at least attempt the same silent
   // /api/matches refresh below.
   const knownRiotId = (cached && cached.riotId) || localStorage.getItem('riotId') || '';
-  if (!knownRiotId) return; // nothing remembered at all — first-ever visit, nothing to restore
+  // v4.34: nothing remembered at all (first-ever visit, or every trace cleared) — nothing to
+  // restore, but the background must still show SOMETHING rather than sitting plain indefinitely
+  // waiting for a search that may not come for a while. A resolved profile's own splash always
+  // replaces this the moment one becomes known (any later updateBgSplash call just overwrites the
+  // CSS var), same "preload first, 404 stays plain" contract either way.
+  if (!knownRiotId) { showRandomSplash(); return; }
 
   let renderedRows = false;
   if (cached && cached.riotId && Array.isArray(cached.games) && cached.games.length) {
@@ -1169,6 +1174,20 @@ function updateBgSplash(games) {
   img.onload = () => { document.documentElement.style.setProperty('--splash-img', `url("${url}")`); document.body.classList.add('has-splash'); };
   img.onerror = () => { document.documentElement.style.setProperty('--splash-img', 'none'); document.body.classList.remove('has-splash'); };
   img.src = url;
+}
+// v4.34: default landing splash — no known profile at all yet (restoreLastSearch's own early
+// return, see below), so there's no real champ to derive one from. Picks uniformly at random from
+// lib/champstats.mjs's own STATS keys (already imported; the exact same id space champSplashUrl
+// expects) and reuses updateBgSplash's whole preload-then-commit contract via a synthetic
+// single-game array — mostFrequentChamp trivially "wins" on a lone entry, so no separate code
+// path is needed just for this. A resolved profile's real splash always overwrites this the
+// moment one becomes known (any later updateBgSplash call just replaces the CSS var); a 404 on
+// the random pick falls back to plain, same as any other splash attempt.
+function showRandomSplash() {
+  const champs = Object.keys(CHAMP_STATS);
+  if (!champs.length) return;
+  const champ = champs[Math.floor(Math.random() * champs.length)];
+  updateBgSplash([{ champ }]);
 }
 // v4.27: delegated (capture — 'error' doesn't bubble), so every current AND future .champ-icon
 // <img> (matchup champ-c cells) gets the same graceful text fallback on a 404 without needing to
