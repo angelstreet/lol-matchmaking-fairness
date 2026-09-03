@@ -2,6 +2,8 @@
 
 *(formerly "LoL Matchmaking Fairness" — same project, same repo, new name)*
 
+**[losingqueue.lol](https://www.losingqueue.lol/)** — the live app.
+
 **Was your League of Legends game actually winnable?**
 
 Enter a Riot ID, pick a game (or your **current live game**), and get a fairness verdict — **OK / BORDERLINE / NOT OK** — with a one-line reason and a lane-by-lane matchup table for all 10 players, computed from **pre-game data only** (what everyone looked like *before* the match started, not after).

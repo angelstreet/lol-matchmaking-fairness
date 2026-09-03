@@ -6,13 +6,26 @@ import { PAIRS as DUO_PAIRS, PATCH as DUO_SYNERGY_PATCH } from '../lib/duosynerg
 // Same-origin API in production (Vercel functions); Vite proxies /api in dev.
 const API = import.meta.env.VITE_API_URL || '';
 
+// v4.31: SECURITY — <form id="f"> below carries an inline onsubmit="return false" IN THE HTML
+// STRING itself, not just the addEventListener('submit', ...) handler further down. A real user
+// hit this: the search form natively GET-submitted (Enter, pressed before/during a JS crash
+// window — e.g. the TDZ bug fixed earlier) with no script having called preventDefault yet,
+// producing a URL like /?riot-search=Name%23TAG&riot-api-key=RGAPI-... — the pasted Riot key
+// leaked straight into the URL bar and browser history. Inline HTML event-handler attributes are
+// compiled by the parser as soon as the element exists — for innerHTML-injected markup like this,
+// that's the instant THIS assignment statement runs (the very first line of this module), so the
+// form is submit-proof before any later code in this file has a chance to run, let alone crash.
+// The addEventListener('submit', ...) handler (search below) is unaffected — onsubmit="return
+// false" blocks the browser's OWN default action, it doesn't stop other listeners from also
+// firing, so the real search logic still runs exactly as before; only the native GET-navigation
+// fallback is gone. See consumeLeakedParams below for cleaning up a URL that already leaked.
 document.querySelector('#app').innerHTML = `
   <div class="site-header">
     <img class="lol-logo" src="https://upload.wikimedia.org/wikipedia/commons/d/d8/League_of_Legends_2019_vector.svg" alt="League of Legends">
     <h1><span>Losing Queue</span> <span class="unofficial-badge">Unofficial</span> <span class="h1-right"><a href="/scoring.html" class="algo-link">ⓘ <span class="algo-full">How we score</span><span class="algo-short">Scoring</span></a><span id="clerkBtn"></span></span></h1>
   </div>
   <div class="sub"><span class="sub-short">Was your game winnable or are you in a losing queue? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span></div>
-  <form id="f" autocomplete="off">
+  <form id="f" autocomplete="off" onsubmit="return false">
     <div class="combo">
       <input id="riotId" name="riot-search" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
       <button type="button" id="bmStar" title="Bookmark this profile">☆</button>
@@ -52,6 +65,35 @@ document.querySelector('#app').innerHTML = `
 const $ = s => document.querySelector(s);
 $('#apiKey').value = localStorage.getItem('rgapi') || '';
 $('#riotId').value = localStorage.getItem('riotId') || '';
+
+// v4.31: defensive recovery for a URL that already leaked (see the onsubmit="return false" fix
+// above) — a bookmark, a shared link, or a stale browser-history entry could still carry
+// ?riot-search=...&riot-api-key=... today, from before that fix shipped. Consumes both params
+// (prefilling the inputs, same as the plain localStorage-based prefill just above — this simply
+// runs after it and wins if a param is actually present) and ALWAYS scrubs the URL via
+// history.replaceState, even if neither param was present, so a leaked key never lingers visibly
+// for even one extra render. Deliberately does NOT depend on normRiotId (declared much further
+// down this file) — a small inline trim/normalize instead, so this can run at the very top of the
+// module with zero risk of the exact TDZ-ordering mistake already fixed elsewhere in this file
+// (champSplashUrl) — this recovery path is a security fix, not a place to gamble on hoisting.
+(function consumeLeakedParams() {
+  const params = new URLSearchParams(location.search);
+  const leakedRiotId = params.get('riot-search');
+  const leakedKey = params.get('riot-api-key');
+  if (leakedRiotId) {
+    const normalized = String(leakedRiotId).trim().replace(/\s*#\s*/, '#');
+    $('#riotId').value = normalized;
+    localStorage.setItem('riotId', normalized);
+  }
+  if (leakedKey) {
+    const trimmedKey = String(leakedKey).trim();
+    $('#apiKey').value = trimmedKey;
+    localStorage.setItem('rgapi', trimmedKey);
+  }
+  if (params.has('riot-search') || params.has('riot-api-key')) {
+    history.replaceState(null, '', location.pathname);
+  }
+})();
 $('#howKey').addEventListener('click', e => { e.preventDefault(); const k = $('#keyHelp'); k.style.display = k.style.display === 'none' ? 'block' : 'none'; });
 
 // The key field used to only persist on form submit, so pasting a fresh key without hitting
