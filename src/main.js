@@ -456,7 +456,12 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
       // renderedRows is true — "keep the cached view as-is" is still correct there) or, when
       // nothing had rendered yet, leave it completely blank. Only fall back when there's truly
       // nothing on screen already, so a real (if stale) cached list is never replaced/duplicated.
-      if (!renderedRows) await keylessFallback({ riotId: knownRiotId, region: attemptRegion });
+      if (!renderedRows && await keylessFallback({ riotId: knownRiotId, region: attemptRegion })) {
+        // Same notice the #f submit handler shows on this same fallback — no raw key-error text
+        // to prepend here (this runs before any user action, there's nothing to soften), just the
+        // one calm line explaining why they're looking at cached games instead of a live list.
+        $('#status').innerHTML = '<span class="dim">Live game list unavailable (no valid key) — showing analyzed games from cache.</span>';
+      }
     });
 })();
 
