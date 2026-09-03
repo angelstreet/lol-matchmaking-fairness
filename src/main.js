@@ -299,17 +299,26 @@ function handleKeyError(err, sentKeyValue) {
 // Verdict is binary (FAIR / NOT FAIR — echoing the app name). Legacy cached entries may still
 // carry the old 'OK' / 'NOT OK' / 'BORDERLINE' values — map those to the same two states.
 const isFairVerdict = v => v === 'OK' || v === 'FAIR';
-// NOT FAIR is further qualified by `direction` (lib/riot.mjs's fairness().direction, persisted on
-// the entry) — which team the imbalance actually favors, relative to the analyzed profile. Used
-// to be spelled out in the badge text too ("NOT FAIR · THEIR FAVOR" / "· YOUR FAVOR"), but that
-// took too much space — now that against/favor already have distinct colors (red/amber), color
-// alone carries the direction and the label always just reads "NOT FAIR"; the wording lives only
-// in the tooltip (verdictTitle). v4.1: the engine no longer ever emits 'mixed' (every verdict is
-// now FAIR or a clearly-directed NOT FAIR — see fairness()'s net-direction logic) — 'mixed' can
-// only appear on a legacy cached entry analyzed before that change, and is treated as red/needs
+// A non-fair verdict is further qualified by `direction` (lib/riot.mjs's fairness().direction,
+// persisted on the entry) — which team the imbalance actually favors, relative to the analyzed
+// profile. Used to be spelled out in the badge text too ("NOT FAIR · THEIR FAVOR" / "· YOUR
+// FAVOR"), then collapsed to color-only (red/amber) with the label always reading "NOT FAIR"
+// regardless of direction — v4.33 gives the amber (favor) case its own label, "FAVORED" (see
+// verdictLabel below), rather than relying on color alone to say a stacked-in-your-favor lobby
+// isn't the same thing as a stacked-against-you one. Full wording either way still lives in the
+// tooltip (verdictTitle). v4.1: the engine no longer ever emits 'mixed' (every verdict is now FAIR
+// or a clearly-directed non-fair one — see fairness()'s net-direction logic) — 'mixed' can only
+// appear on a legacy cached entry analyzed before that change, and is treated as red/needs
 // re-analysis rather than its own real category.
 const verdictCls = (v, dir) => isFairVerdict(v) ? 'b-ok' : dir === 'favor' ? 'b-mid' : 'b-bad';
-const verdictLabel = (v) => isFairVerdict(v) ? 'FAIR' : 'NOT FAIR';
+// v4.33: the amber (favor) case reads "FAVORED" now, not "NOT FAIR" — a lobby stacked IN your
+// favor was reading as a negative-sounding "NOT FAIR" label with only the color (amber vs red)
+// distinguishing it from the genuinely-against case, easy to misread at a glance. "FAVORED" is
+// short (fits the same 90px .col-badge column NOT FAIR did, with room to spare) and unambiguous:
+// the lobby leaned your way. Tooltips/reasons unchanged (verdictTitle below still does the real
+// explaining) — this only touches the three-word label itself. Losing-queue badge logic is keyed
+// on `direction === 'against'`, not this label text, so it's unaffected.
+const verdictLabel = (v, dir) => isFairVerdict(v) ? 'FAIR' : dir === 'favor' ? 'FAVORED' : 'NOT FAIR';
 // tooltip is the engine's verdictTooltip — the actual fired reasons (NOT FAIR) or the offsetting
 // explanation (FAIR-but-imbalanced), terse, straight from lib/riot.mjs. Legacy entries analyzed
 // before that field existed (or that still carry the retired 'mixed' direction) fall back to a
