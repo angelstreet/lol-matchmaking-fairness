@@ -60,11 +60,22 @@ document.querySelector('#app').innerHTML = `
     <div id="hist"></div>
     <div id="histNav" class="dim" style="display:flex;gap:12px;align-items:center"></div>
   </div>
+  <div id="shareMenu" class="share-menu"></div>
   <footer class="foot"><a href="https://github.com/angelstreet/lol-matchmaking-fairness" target="_blank" rel="noreferrer">⭐ Open source — star it on GitHub</a><span class="dim"> · MIT · not endorsed by Riot Games · </span><a href="/scoring.html" class="algo-link">ⓘ How we score</a></footer>`;
 
 const $ = s => document.querySelector(s);
 $('#apiKey').value = localStorage.getItem('rgapi') || '';
 $('#riotId').value = localStorage.getItem('riotId') || '';
+
+// v4.35: set by consumeLeakedParams below when the URL is a SHARE deep link (?riot-search=...&
+// match=...) — restoreLastSearch (further down) checks this BEFORE its own localStorage-based
+// restore, so a deliberately-visited share link fully controls what's shown on load rather than
+// merging with (or losing to) whatever this browser had cached from before. `let`, not `const`:
+// consumeLeakedParams (an IIFE, runs immediately below) WRITES it, restoreLastSearch (also an
+// IIFE, declared much further down but still running synchronously at module load) READS it — so
+// this has to exist, even if still null, before either runs. Same TDZ concern already documented
+// elsewhere in this file re: champSplashUrl — `let` here, not `const`, is deliberate.
+let deepLinkParams = null;
 
 // v4.31: defensive recovery for a URL that already leaked (see the onsubmit="return false" fix
 // above) — a bookmark, a shared link, or a stale browser-history entry could still carry
@@ -76,10 +87,18 @@ $('#riotId').value = localStorage.getItem('riotId') || '';
 // down this file) — a small inline trim/normalize instead, so this can run at the very top of the
 // module with zero risk of the exact TDZ-ordering mistake already fixed elsewhere in this file
 // (champSplashUrl) — this recovery path is a security fix, not a place to gamble on hoisting.
+// v4.35: now also recognizes a `match` param riding alongside riot-search — that combination is a
+// deliberate SHARE deep link (see loadDeepLink and the Share button, further down), not a leaked
+// URL, and per the feature brief it must NOT be scrubbed: those two params are shareable by
+// design, so consumeLeakedParams leaves them right where they are and just records them into
+// deepLinkParams for restoreLastSearch to pick up. riot-api-key is the one exception either way —
+// key material never legitimately rides along on a share link, but if it's somehow present
+// (a manually hand-edited URL, say) it still gets stripped, deep link or not.
 (function consumeLeakedParams() {
   const params = new URLSearchParams(location.search);
   const leakedRiotId = params.get('riot-search');
   const leakedKey = params.get('riot-api-key');
+  const shareMatch = params.get('match');
   if (leakedRiotId) {
     const normalized = String(leakedRiotId).trim().replace(/\s*#\s*/, '#');
     $('#riotId').value = normalized;
@@ -90,7 +109,13 @@ $('#riotId').value = localStorage.getItem('riotId') || '';
     $('#apiKey').value = trimmedKey;
     localStorage.setItem('rgapi', trimmedKey);
   }
-  if (params.has('riot-search') || params.has('riot-api-key')) {
+  if (leakedRiotId && shareMatch) {
+    deepLinkParams = { riotId: String(leakedRiotId).trim().replace(/\s*#\s*/, '#'), matchId: shareMatch };
+    if (leakedKey) {
+      params.delete('riot-api-key');
+      history.replaceState(null, '', location.pathname + '?' + params.toString());
+    }
+  } else if (params.has('riot-search') || params.has('riot-api-key')) {
     history.replaceState(null, '', location.pathname);
   }
 })();
@@ -498,6 +523,14 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
 // since. Failures during that background refetch are swallowed: errors only surface for
 // user-initiated searches, the cached view is a perfectly fine thing to keep showing.
 (function restoreLastSearch() {
+  // v4.35: a SHARE deep link (?riot-search=...&match=..., see consumeLeakedParams above) wins
+  // over the normal lastSearch-cache restore below entirely — a deliberately-visited share link
+  // should show exactly that profile + that game, not get silently merged with (or overridden by)
+  // whatever this browser happens to have cached from a previous session. loadDeepLink is a
+  // `function` declaration (defined near keylessFallback further down, after this IIFE textually —
+  // harmless, function declarations hoist their full body regardless of source order, same as
+  // keylessFallback itself already relies on a few lines below).
+  if (deepLinkParams) { loadDeepLink(deepLinkParams.riotId, deepLinkParams.matchId); return; }
   let cached;
   try { cached = JSON.parse(localStorage.getItem('lastSearch') || 'null'); } catch { cached = null; }
   // v4.30: "known riotId" now covers TWO sources — a real lastSearch cache (games ready to render
@@ -706,6 +739,63 @@ async function keylessFallback(attempt) {
     listIsKeylessFallback = true;
     return true;
   } catch { return false; }
+}
+
+// v4.35: plain function, no module-level const backing it — regionFromMatchId is called
+// SYNCHRONOUSLY from loadDeepLink below, itself called synchronously from restoreLastSearch's
+// IIFE at module-load time, well before a `const` declared this far down the file would have been
+// evaluated by the normal top-to-bottom pass (same TDZ crash class already fixed elsewhere in
+// this file re: champSplashUrl — a `const REGION_BY_MATCH_PREFIX` here threw exactly that
+// "Cannot access before initialization" in testing). The lookup table lives inside the function
+// body instead, built fresh on each call, so there's nothing anywhere else in the module that
+// could still be in its temporal dead zone when this runs.
+function regionFromMatchId(matchId) {
+  const prefix = String(matchId || '').split('_')[0];
+  return { EUW1: 'euw', EUN1: 'eune', NA1: 'na', KR: 'kr' }[prefix] || 'euw';
+}
+// v4.35: SHARE deep links — .../?riot-search=Name%23TAG&match=EUW1_xxx (see consumeLeakedParams
+// above, which parses the URL into deepLinkParams, and the Share button further down, which
+// builds this exact URL via shareLinkFor). Loads that profile + that ONE game keylessly — the
+// same cached/Turso-only path keylessFallback above already uses (a shareable game is, by
+// definition, already analyzed and cached — neither fetch below needs a Riot key) — then
+// auto-expands its card, same as a manual View click. The shared game might not be on the
+// profile's most-recent page of history (an old shared link still has to work), so it's fetched
+// directly by matchId via /api/analyze (which ignores paging entirely) and prepended to whatever
+// /api/history's first page returns, rather than trusting that page alone to contain it.
+async function loadDeepLink(riotId, matchId) {
+  const region = regionFromMatchId(matchId);
+  $('#riotId').value = riotId;
+  $('#region').value = region;
+  updateStar();
+  try {
+    const [entryRes, histRes] = await Promise.all([
+      fetch(`${API}/api/analyze?riotId=${encodeURIComponent(riotId)}&matchId=${encodeURIComponent(matchId)}&region=${region}`),
+      fetch(`${API}/api/history?riotId=${encodeURIComponent(riotId)}&offset=0&limit=10`),
+    ]);
+    const entryData = entryRes.ok ? await entryRes.json() : null;
+    const histData = histRes.ok ? await histRes.json() : null;
+    let games = histData?.games || [];
+    // Not already on the fetched page — synthesize a row for it in the exact shape /api/history's
+    // own rows already carry (renderRows expects nothing more than this from any row).
+    if (entryData?.entry && !games.some(g => g.matchId === matchId)) {
+      const e = entryData.entry;
+      games = [{
+        matchId, cached: true, live: !!e.live, result: e.result, champ: e.user?.champ, kda: e.user?.kda,
+        when: e.when, duration: e.duration, matchmaking: e.matchmaking, direction: e.direction,
+        verdictTooltip: e.verdictTooltip, oneLiner: e.oneLiner,
+      }, ...games];
+    }
+    if (!games.length) { $('#status').textContent = "This shared game couldn't be found — it may not be analyzed yet."; return; }
+    CTX = { riotId, region };
+    localStorage.setItem('riotId', riotId);
+    $('#list').innerHTML = '';
+    renderRows(games, $('#list'), 'm', riotId);
+    loadHistory(0);
+    const viewBtn = document.querySelector(`#list .mini[data-mid="${CSS.escape(matchId)}"]:not(.icon-btn)`);
+    if (viewBtn) viewBtn.click(); // same code path a manual View click takes — no duplicated render logic
+  } catch {
+    $('#status').textContent = 'Could not load the shared game — try refreshing.';
+  }
 }
 
 // v4.32: the actual live-search request+render, factored out of the #f submit handler so
@@ -1018,6 +1108,13 @@ function renderRows(games, container, prefix, rid) {
     const reanalyzeBtn = g.cached
       ? `<button class="mini icon-btn${g.live ? ' wasLive-ready' : ''}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="${g.live ? 'Game finished? Get the final analysis' : 'Re-analyze with the latest scoring (needs a key or a free slot)'}">↻</button>`
       : '';
+    // v4.35: Share — only makes sense once a game actually has an analysis to share (same gate as
+    // the re-analyze button above). Deliberately NOT given the .mini class: that class is what the
+    // delegated listener just below wires up to analyze() — a share click must never trigger an
+    // analyze/toggle on the card, so it gets its own class (.share-btn) and its own listener.
+    const shareBtn = g.cached
+      ? `<button type="button" class="icon-btn share-btn" data-mid="${esc(g.matchId)}" data-rid="${esc(rid)}" title="Share this game">📤</button>`
+      : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
         <span class="col-res">${resultEl}</span>
@@ -1028,11 +1125,13 @@ function renderRows(games, container, prefix, rid) {
         <span class="one-h" id="o${key}" title="${oneLiner}">${oneLinerHTML}</span>
         <button class="mini${g.wasLive ? ' wasLive-ready' : ''}" id="v${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}"${g.wasLive ? ' data-force="1" title="Your live-reviewed game just ended — click for the final analysis"' : ''}>${g.cached ? '✓ View' : 'Analyze'}</button>
         ${reanalyzeBtn}
+        ${shareBtn}
       </div>
       <div class="details" id="d${key}"></div>
     </div>`;
   }).join('');
   container.querySelectorAll('.mini').forEach(b => b.addEventListener('click', () => analyze(b.dataset.mid, b, b.dataset.key)));
+  container.querySelectorAll('.share-btn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openShareMenu(b, b.dataset.mid, b.dataset.rid); }));
 }
 
 async function analyze(matchId, btn, i, attempt = 0) {
@@ -1120,6 +1219,252 @@ async function analyze(matchId, btn, i, attempt = 0) {
   } finally {
     if (isReanalyze) { btn.innerHTML = prevIcon; btn.disabled = false; }
     endBusy();
+  }
+}
+
+// ---- v4.35: Share — deep-link copy, native share, and a canvas-rendered result-card PNG ----
+// The deep link itself: .../?riot-search=Name%23TAG&match=EUW1_xxx — loaded back keylessly by
+// loadDeepLink above (see consumeLeakedParams for how the params are recognized on the way in).
+function shareLinkFor(riotId, matchId) {
+  return `${location.origin}${location.pathname}?riot-search=${encodeURIComponent(riotId)}&match=${encodeURIComponent(matchId)}`;
+}
+function closeShareMenu() { const m = $('#shareMenu'); m.classList.remove('open'); m.innerHTML = ''; delete m.dataset.mid; }
+// A single reusable popover (see #shareMenu in the template above) repositioned per click, rather
+// than one per row — keeps renderRows' per-row markup light and there's only ever one open at a
+// time anyway. Clicking the SAME share button again just closes it (closeShareMenu is called
+// unconditionally first, so `already` has to be captured before that).
+function openShareMenu(btn, matchId, riotId) {
+  const menu = $('#shareMenu');
+  const already = menu.classList.contains('open') && menu.dataset.mid === matchId;
+  closeShareMenu();
+  if (already) return;
+  const canNativeShare = typeof navigator.share === 'function';
+  menu.innerHTML = `
+    <button type="button" class="share-item" id="shCopy">🔗 Copy link</button>
+    <button type="button" class="share-item" id="shImg">🖼️ Download image</button>
+    ${canNativeShare ? `<button type="button" class="share-item" id="shNative">📱 Share…</button>` : ''}
+  `;
+  menu.dataset.mid = matchId;
+  const r = btn.getBoundingClientRect();
+  const menuW = 190; // keep in sync with .share-menu's min-width below
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menuW - 8, r.right - menuW))}px`;
+  menu.classList.add('open');
+  $('#shCopy').addEventListener('click', () => copyShareLink(riotId, matchId));
+  $('#shImg').addEventListener('click', () => downloadResultCard(riotId, matchId));
+  if (canNativeShare) $('#shNative').addEventListener('click', () => nativeShare(riotId, matchId));
+}
+document.addEventListener('click', e => { if (!e.target.closest('.share-menu') && !e.target.closest('.share-btn')) closeShareMenu(); });
+document.addEventListener('scroll', closeShareMenu, true); // a fixed-position popover would otherwise drift away from the button it points at
+
+async function copyShareLink(riotId, matchId) {
+  const url = shareLinkFor(riotId, matchId);
+  closeShareMenu();
+  try {
+    await navigator.clipboard.writeText(url);
+    $('#status').textContent = 'Link copied.';
+  } catch {
+    // Clipboard permission denied/unavailable — surface the URL itself so it can still be
+    // selected and copied by hand rather than just silently failing.
+    $('#status').textContent = url;
+  }
+}
+async function nativeShare(riotId, matchId) {
+  closeShareMenu();
+  try { await navigator.share({ title: 'Losing Queue', text: 'Was this game fair? Check it out:', url: shareLinkFor(riotId, matchId) }); } catch {} // AbortError on user-cancel, etc. — nothing to report either way
+}
+
+const CARD_W = 1200, CARD_H = 630;
+function canvasRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+// Greedy word-wrap, capped at maxLines with an ellipsis on the last line if it overflows —
+// canvas has no native text-wrapping, unlike the DOM one-liner it mirrors. Returns the pixel
+// height actually used so the caller can stack the next element below it.
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 3) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) { lines.push(line); line = w; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  const shown = lines.slice(0, maxLines);
+  if (lines.length > maxLines && shown.length) shown[shown.length - 1] = shown[shown.length - 1].replace(/\s*\S*$/, '') + '…';
+  shown.forEach((l, i) => ctx.fillText(l, x, y + i * lineHeight));
+  return Math.max(shown.length, 1) * lineHeight;
+}
+function loadCardImage(url) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // ddragon serves permissive CORS headers — needed so the canvas this gets drawn into can still be exported (toBlob) below
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null); // a 404'd/unmapped champ icon just leaves that space blank, not a fatal error for the whole card
+    img.src = url;
+  });
+}
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    try { canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('toBlob returned null'))), 'image/png'); }
+    catch (err) { reject(err); }
+  });
+}
+// The marketing asset behind "Download image" — a self-contained 1200x630 PNG (Discord/Twitter
+// link-preview size), drawn with the Canvas API directly (no image/canvas libraries), mirroring
+// the same verdict color/label (verdictCls/verdictLabel), win% bar (see winProbHTML) and duo-
+// evidence phrasing (lib/riot.mjs's fairness(), "N enemy duos") already on screen, so a shared
+// card never contradicts the live page. `withIcon=false` skips the ddragon champion-icon fetch
+// and draw entirely — used as the automatic retry when drawing (or exporting) the icon version
+// taints the canvas (see downloadResultCard below): once nothing but locally-drawn shapes/text has
+// touched the canvas, export can't be blocked a second time.
+async function renderResultCard(e, riotId, withIcon) {
+  const canvas = document.createElement('canvas');
+  canvas.width = CARD_W; canvas.height = CARD_H;
+  const ctx = canvas.getContext('2d');
+  const PAD = 56;
+
+  ctx.fillStyle = '#0e1015';
+  ctx.fillRect(0, 0, CARD_W, CARD_H);
+  ctx.strokeStyle = '#262b36';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, CARD_W - 2, CARD_H - 2);
+
+  // Wordmark + UNOFFICIAL pill, same gold (--mid) and pill styling as the real header.
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#e0a63d';
+  ctx.font = '800 40px Arial, sans-serif';
+  ctx.fillText('LOSING QUEUE', PAD, 80);
+  const wmWidth = ctx.measureText('LOSING QUEUE').width;
+  ctx.font = '800 13px Arial, sans-serif';
+  const pillText = 'UNOFFICIAL';
+  const pillW = ctx.measureText(pillText).width + 24, pillH = 26;
+  const pillX = PAD + wmWidth + 16, pillY = 56;
+  ctx.strokeStyle = '#e0a63d'; ctx.lineWidth = 1.5;
+  canvasRoundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2); ctx.stroke();
+  ctx.fillStyle = '#e0a63d';
+  ctx.fillText(pillText, pillX + 12, pillY + 18);
+
+  // Verdict badge, top-right — same three colors as .b-ok/.b-mid/.b-bad in style.css.
+  const VERDICT_COLORS = { 'b-ok': ['#123527', '#3fb68b'], 'b-mid': ['#3a2d10', '#e0a63d'], 'b-bad': ['#3a1616', '#e05d5d'] };
+  const vCls = verdictCls(e.matchmaking, e.direction);
+  const [badgeBg, badgeFg] = VERDICT_COLORS[vCls] || VERDICT_COLORS['b-ok'];
+  const vLabel = verdictLabel(e.matchmaking, e.direction);
+  ctx.font = '800 22px Arial, sans-serif';
+  const badgeW = ctx.measureText(vLabel).width + 40, badgeH = 40;
+  const badgeX = CARD_W - PAD - badgeW, badgeY = 48;
+  ctx.fillStyle = badgeBg; canvasRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2); ctx.fill();
+  ctx.fillStyle = badgeFg;
+  ctx.textAlign = 'center';
+  ctx.fillText(vLabel, badgeX + badgeW / 2, badgeY + 27);
+  ctx.textAlign = 'left';
+
+  // Champion icon (best-effort) + result/champ/KDA.
+  const iconSize = 120, iconX = PAD, iconY = 130, textX = iconX + iconSize + 28;
+  ctx.fillStyle = '#181b22';
+  canvasRoundRect(ctx, iconX, iconY, iconSize, iconSize, 14); ctx.fill();
+  if (withIcon && e.user?.champ) {
+    const img = await loadCardImage(`https://ddragon.leagueoflegends.com/cdn/${CHAMP_STATS_PATCH}/img/champion/${encodeURIComponent(e.user.champ)}.png`);
+    if (img) {
+      ctx.save();
+      canvasRoundRect(ctx, iconX, iconY, iconSize, iconSize, 14); ctx.clip();
+      ctx.drawImage(img, iconX, iconY, iconSize, iconSize);
+      ctx.restore();
+    }
+  }
+  const isWin = e.result === 'Victory';
+  ctx.font = '800 44px Arial, sans-serif';
+  ctx.fillStyle = isWin ? '#3fb68b' : '#e05d5d';
+  ctx.fillText(isWin ? 'VICTORY' : 'DEFEAT', textX, iconY + 48);
+  ctx.font = '600 26px Arial, sans-serif';
+  ctx.fillStyle = '#e8eaf0';
+  ctx.fillText(e.user?.champ || '', textX, iconY + 84);
+  ctx.font = '400 18px Arial, sans-serif';
+  ctx.fillStyle = '#8a91a3';
+  ctx.fillText(e.user?.kda || '', textX, iconY + 112);
+
+  // Win% bar — same blue/red segment-with-labels language as winProbHTML's DOM bar.
+  const barY = 300, barH = 36, barW = CARD_W - PAD * 2;
+  const wp = e.winProb;
+  if (wp) {
+    ctx.save();
+    canvasRoundRect(ctx, PAD, barY, barW, barH, barH / 2); ctx.clip();
+    const blueW = Math.round(barW * wp.blue / 100);
+    ctx.fillStyle = '#4a90d9'; ctx.fillRect(PAD, barY, blueW, barH);
+    ctx.fillStyle = '#d97a4a'; ctx.fillRect(PAD + blueW, barY, barW - blueW, barH);
+    ctx.restore();
+    ctx.font = '700 16px Arial, sans-serif';
+    ctx.fillStyle = '#fff';
+    if (wp.blue >= WP_NARROW_PCT) { ctx.textAlign = 'left'; ctx.fillText(`${wp.blue}%`, PAD + 12, barY + 23); }
+    if (wp.red >= WP_NARROW_PCT) { ctx.textAlign = 'right'; ctx.fillText(`${wp.red}%`, PAD + barW - 12, barY + 23); }
+    ctx.textAlign = 'left';
+  }
+
+  // One-liner, then the duo-evidence line (if the fairness engine actually flagged a relevant
+  // duo) directly below it — same "N enemy duos" / "N your duos" phrasing lib/riot.mjs's
+  // fairness() already produces (g.duos: [name, name, "X/5 pre-game games together", side]).
+  // Side picked to match whichever direction the verdict itself points: a verdict that favors
+  // the user cites THEIR duos as evidence, everything else cites the enemy's.
+  ctx.font = '400 24px Arial, sans-serif';
+  ctx.fillStyle = '#e8eaf0';
+  const oneLinerY = 380;
+  const usedH = wrapCanvasText(ctx, scrubLegacy(e.oneLiner), PAD, oneLinerY, barW, 32, 3);
+  const side = e.direction === 'favor' ? 'ally' : 'enemy';
+  const relevantDuos = (e.duos || []).filter(d => d[3] === side);
+  if (relevantDuos.length) {
+    const duoLabel = `${relevantDuos.length} ${side === 'ally' ? 'your' : 'enemy'} duo${relevantDuos.length > 1 ? 's' : ''} · ${relevantDuos[0][2]}`;
+    ctx.font = '400 18px Arial, sans-serif';
+    ctx.fillStyle = '#8a91a3';
+    ctx.fillText(duoLabel, PAD, oneLinerY + usedH + 12);
+  }
+
+  // Footer branding.
+  ctx.font = '700 18px Arial, sans-serif';
+  ctx.fillStyle = '#e0a63d';
+  ctx.fillText('losingqueue.lol', PAD, CARD_H - 36);
+  ctx.font = '400 15px Arial, sans-serif';
+  ctx.fillStyle = '#8a91a3';
+  ctx.textAlign = 'right';
+  ctx.fillText(riotId || '', CARD_W - PAD, CARD_H - 36);
+  ctx.textAlign = 'left';
+
+  return canvas;
+}
+async function downloadResultCard(riotId, matchId) {
+  closeShareMenu();
+  $('#status').textContent = 'Generating image…';
+  try {
+    const region = CTX.riotId === riotId ? CTX.region : regionFromMatchId(matchId);
+    const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(riotId)}&matchId=${encodeURIComponent(matchId)}&region=${region}`);
+    const data = await r.json();
+    if (!r.ok || !data.entry) throw new Error(data.error || 'Game not found');
+    let blob;
+    try {
+      blob = await canvasToBlob(await renderResultCard(data.entry, riotId, true));
+    } catch {
+      // Tainted-canvas export failure — the ddragon icon loaded but didn't actually carry a CORS
+      // header permissive enough for export (or some other draw-time hiccup). Retry with nothing
+      // but locally-drawn shapes/text on the canvas, which can't taint it a second time.
+      blob = await canvasToBlob(await renderResultCard(data.entry, riotId, false));
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `losingqueue-${matchId}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    $('#status').textContent = '';
+  } catch (err) {
+    $('#status').textContent = '❌ Could not generate the image: ' + esc(err.message || 'unknown error');
   }
 }
 

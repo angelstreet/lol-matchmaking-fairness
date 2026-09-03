@@ -333,6 +333,12 @@ td.you + td.you { border-left:none !important; }
 /* Re-analyze icon button sits right after .mini's View button — it shouldn't also claim the
    margin-left:auto that pushes .mini to the row's right edge (that job stays with View). */
 .icon-btn { min-width:0; padding:6px 10px; margin-left:6px; font-size:14px; flex-shrink:0; }
+/* v4.35: Share popover (#shareMenu in main.js) — one reusable element, repositioned per click via
+   inline top/left (fixed positioning, so it isn't clipped by any row's own overflow). */
+.share-menu { position:fixed; z-index:50; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px; display:none; flex-direction:column; min-width:190px; box-shadow:0 8px 24px rgba(0,0,0,.45); }
+.share-menu.open { display:flex; }
+.share-item { background:none; border:none; color:var(--txt); text-align:left; padding:9px 10px; border-radius:6px; cursor:pointer; font-size:13px; font-family:inherit; }
+.share-item:hover { background:var(--line); }
 .note a { color:var(--ok); }
 #keyHelp { margin-top:8px; line-height:1.7; }
 h4 { margin:10px 0 2px; }
