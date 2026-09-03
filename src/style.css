@@ -31,22 +31,27 @@ body.has-splash::before { opacity:1; }
 /* #app holds everything main.js renders (header, form, game list, footer) as direct children —
    one stacking context above body::before is enough to keep all of it above the background art. */
 #app { position:relative; z-index:1; }
-h1 { font-size:22px; margin-bottom:4px; } h1 span { color:var(--ok); }
-/* v4.27: header branding — the official gold League of Legends wordmark (Wikimedia Commons SVG,
-   genuinely gold in the source file at fill #c79b3b, no CSS tinting needed) instead of spelling
-   out "LoL" in the title text too (the wordmark already carries that branding). Small amber
-   UNOFFICIAL pill next to the title — a plain class selector beats the generic `h1 span` rule
-   above on specificity (0,1,0 > 0,0,2) regardless of source order, same trick .algo-link already
-   relies on, so this doesn't need to fight for green-vs-amber. */
+/* v4.28: h1 is now ALWAYS a flex row (was block-with-a-float, made flex only on mobile) — it's
+   also a flex ITEM of .site-header now (sharing the row with .lol-logo), and a shrink-to-fit flex
+   item can't give its own float:right child anywhere real to float TO (the old float-right
+   .h1-right rule was landing right after the UNOFFICIAL badge instead of the header's outer right
+   edge). flex:1 makes h1 claim the rest of the row after the logo, and .h1-right's
+   margin-left:auto (replacing float) pushes it to THAT full-width row's real right edge — the
+   same trick #clerkBtn/.h1-right already used on mobile, now the only mechanism, at every width.
+   Title span colored to match the UNOFFICIAL badge (var(--mid), amber/gold) instead of green —
+   cohesive with the gold LoL wordmark; the badge and .algo-link still win on specificity (a class
+   selector beats these 2 plain-element selectors) so neither turns amber by accident. */
+h1 { font-size:22px; margin-bottom:4px; display:flex; align-items:center; flex-wrap:wrap; gap:8px; flex:1 1 auto; min-width:0; }
+h1 span { color:var(--mid); }
 .site-header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .lol-logo { height:24px; width:auto; display:block; flex-shrink:0; filter:drop-shadow(0 0 6px rgba(199,155,59,.3)); }
 .unofficial-badge { font-size:10px; font-weight:800; letter-spacing:.6px; text-transform:uppercase;
   background:#3a2d10; color:var(--mid); border:1px solid var(--mid); border-radius:99px; padding:2px 8px; }
 /* Right-aligned cluster in the header: the /scoring.html link immediately left of the profile
    button (#clerkBtn, populated by Clerk once it loads — mounted user button or a "Sign in"
-   button). float:right (desktop) / margin-left:auto in a flex row (mobile, see the ≤640px block)
-   mirrors the positioning trick #clerkBtn used on its own before this link joined it. */
-.h1-right { float:right; display:inline-flex; align-items:center; gap:12px; }
+   button). margin-left:auto (in the now-always-flex h1 above) pushes it to the row's end at
+   every width — no separate mobile override needed anymore, see the ≤640px block. */
+.h1-right { display:inline-flex; align-items:center; gap:12px; margin-left:auto; }
 #clerkBtn { font-size:14px; }
 /* Link to /scoring.html (the "how we score" static explainer page) — also repeated in the
    footer. Deliberately unobtrusive (dim, no underline) until hovered; small enough not to compete
@@ -349,13 +354,11 @@ h4 { margin:10px 0 2px; }
 @media (max-width: 640px) {
   body { padding:12px; }
 
-  /* header: keep the title from wrapping awkwardly against the scoring link + Sign in button.
-     h1 becomes a flex row, so .h1-right's float is ineffective anyway — margin-left:auto pushes
-     it to the end of the row instead, wrapping onto its own line if there's no room left (same
-     trick #clerkBtn used alone before the scoring link joined it). The scoring link itself
-     shrinks to "Scoring" here — "How we score" is too wide next to the title + profile button. */
-  h1 { font-size:19px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
-  .h1-right { float:none; margin-left:auto; }
+  /* header: v4.28 made h1's flex layout (and .h1-right's margin-left:auto) the baseline at every
+     width, so only the font-size shrink is mobile-specific now — .h1-right still wraps onto its
+     own line when there's no room left, same as before. The scoring link itself shrinks to
+     "Scoring" here — "How we score" is too wide next to the title + profile button. */
+  h1 { font-size:19px; }
   .algo-full { display:none; }
   .algo-short { display:inline; }
   .lol-logo { height:19px; }

@@ -11,7 +11,7 @@ document.querySelector('#app').innerHTML = `
     <img class="lol-logo" src="https://upload.wikimedia.org/wikipedia/commons/d/d8/League_of_Legends_2019_vector.svg" alt="League of Legends">
     <h1><span>Matchmaking Fairness</span> <span class="unofficial-badge">Unofficial</span> <span class="h1-right"><a href="/scoring.html" class="algo-link">ⓘ <span class="algo-full">How we score</span><span class="algo-short">Scoring</span></a><span id="clerkBtn"></span></span></h1>
   </div>
-  <div class="sub"><span class="sub-short">Was your game winnable? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span></div>
+  <div class="sub"><span class="sub-short">Was your game winnable or are you in a losing queue? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span></div>
   <form id="f" autocomplete="off">
     <div class="combo">
       <input id="riotId" name="riot-search" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
@@ -419,6 +419,11 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
   $('#riotId').value = cached.riotId;
   $('#region').value = cached.region || 'euw';
   updateStar();
+  // v4.28: explicit, not just implied by renderRows' own container-gated hook below — the
+  // background must come up immediately from whatever's in localStorage, independent of that
+  // hook staying wired correctly forever. (renderRows fires it too; calling it twice here is
+  // harmless — same computation, same result, just belt-and-suspenders.)
+  updateBgSplash(cached.games);
   renderRows(cached.games, $('#list'), 'm', cached.riotId);
   loadHistory(0);
   if (Date.now() - (cached.ts || 0) < 60000) return; // cache is fresh enough, skip the refetch
@@ -539,6 +544,32 @@ let busyCount = 0;
 function beginBusy() { busyCount++; $('#go').disabled = true; $('#liveBtn').disabled = true; }
 function endBusy() { busyCount = Math.max(0, busyCount - 1); if (busyCount === 0) { $('#go').disabled = false; $('#liveBtn').disabled = false; } }
 
+// v4.28: when a live search fails (dead/missing key, on either the user's own key or the shared
+// server key), a PROFILE ALREADY ANALYZED before is still reachable via /api/history — Turso
+// cache only, no Riot call, no key needed (see api/history.mjs). Renders those games into #list
+// as a stand-in for the failed live list so the app stays usable keyless for known profiles,
+// rather than dead-ending on the raw error. Reuses renderRows unchanged — /api/history's game
+// shape ({matchId, cached:true, live, result, champ, kda, when, duration, matchmaking, direction,
+// verdictTooltip, oneLiner}) is exactly what renderRows already expects (it just won't carry
+// winProb, which renderRows already treats as optional). Firing renderRows($('#list'), ...) also
+// drives the background splash for free, via that function's own updateBgSplash hook — the same
+// mechanism a successful search or restoreLastSearch uses. Doesn't touch localStorage's
+// 'lastSearch' cache (this is a degraded, possibly-incomplete stand-in view, not a confirmed
+// fresh result worth overwriting the real cache with).
+async function keylessFallback(attempt) {
+  try {
+    const r = await fetch(`${API}/api/history?riotId=${encodeURIComponent(attempt.riotId)}&offset=0&limit=${$('#games').value}`);
+    const d = await r.json();
+    if (!r.ok || !d.games?.length) return false;
+    CTX = attempt;
+    localStorage.setItem('riotId', CTX.riotId);
+    $('#list').innerHTML = '';
+    renderRows(d.games, $('#list'), 'm', CTX.riotId);
+    loadHistory(0);
+    return true;
+  } catch { return false; }
+}
+
 $('#f').addEventListener('submit', async e => {
   e.preventDefault();
   // CTX (and localStorage's 'riotId') must NOT be reassigned until the search actually succeeds
@@ -567,7 +598,21 @@ $('#f').addEventListener('submit', async e => {
     $('#status').textContent = data.games.length ? '' : 'No ranked solo games found.';
     localStorage.setItem('lastSearch', JSON.stringify({ riotId: CTX.riotId, region: CTX.region, games: data.games, ts: Date.now() }));
     loadHistory(0);
-  } catch (err) { if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message); }
+  } catch (err) {
+    // v4.28: handleKeyError may already have written its own status message (a dead PASTED key
+    // gets cleared with its own explanation) — captured before the fallback runs so it can be
+    // combined with (not clobbered by) the fallback's own notice. A shared-key failure (handled
+    // === false) gets a softened, dim restatement of the raw error instead of the harsher ❌ —
+    // that treatment is only for the genuine dead-end case (no fallback available either).
+    const handled = handleKeyError(err, sentKey);
+    const keyNote = handled ? $('#status').innerHTML : `<span class="dim">${esc(err.message)}</span>`;
+    const gotFallback = await keylessFallback(attempt);
+    if (gotFallback) {
+      $('#status').innerHTML = keyNote + '<br><span class="dim">Live game list unavailable (no valid key) — showing analyzed games from cache.</span>';
+    } else if (!handled) {
+      $('#status').innerHTML = '❌ ' + esc(err.message);
+    }
+  }
   finally { endBusy(); $('#go').textContent = goLabel; }
 });
 
