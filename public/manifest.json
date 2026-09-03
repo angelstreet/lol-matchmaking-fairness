@@ -1,6 +1,6 @@
 {
-  "name": "LoL Matchmaking Fairness",
-  "short_name": "Fairness",
+  "name": "Losing Queue",
+  "short_name": "LosingQueue",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0e1015",

@@ -1,4 +1,6 @@
-# LoL Matchmaking Fairness
+# Losing Queue
+
+*(formerly "LoL Matchmaking Fairness" — same project, same repo, new name)*
 
 **Was your League of Legends game actually winnable?**
 
@@ -80,4 +82,4 @@ VITE_CLERK_PUBLISHABLE_KEY=pk_... npx vite
 
 [MIT](LICENSE) — do whatever you want, attribution appreciated.
 
-*LoL Matchmaking Fairness isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.*
+*Losing Queue isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.*
