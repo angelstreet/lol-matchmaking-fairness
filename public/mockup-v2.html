@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visual redesign mockup v2 — LoL Matchmaking Fairness</title>
+<!--
+  public/mockup-v2.html — STATIC VALIDATION MOCKUP, not wired into the app in any way.
+  Self-contained (own inline CSS, all images hotlinked from Data Dragon / CommunityDragon /
+  Wikimedia Commons), one real matchup card hardcoded from the cached game EUW1_7954725480
+  (xDevilStreet#EUW, Warwick jungle, NOT FAIR/against — the actual data returned by
+  /api/analyze for that match, fetched 2026-08-20). Demonstrates four proposed changes to the
+  live matchup card design, requested for visual approval before any real implementation:
+
+    1. Side artwork rails (fixed, ~1600px+ viewport only) — Warwick splash art (user's OTP),
+       mirrored left/right, heavy dark gradient fading into the page background.
+    2. Role icons + fixed lane order (TOP/JUNGLE/MID/ADC/SUPPORT) in the Favored column.
+    3. Champion square icons (team-colored border) replacing the plain-text champ name in the
+       outer champ-c columns — full champion name lives in the image's title tooltip now.
+    4. Header branding: the official gold League of Legends wordmark (Wikimedia Commons) next
+       to the site title, plus a small UNOFFICIAL badge.
+
+  Everything else (player cell layout incl. the v4.26 blue/red mirroring, chips, TEAM footer,
+  FAIR/NOT FAIR badge, win%, DRAFT pill) reuses the exact class names and visual language of
+  src/style.css/src/main.js as of this commit, so it's an apples-to-apples comparison against
+  the live app, not a from-scratch redesign.
+
+  Per-lane "Favored" column numbers below are derived directly from each player's own `ga` value
+  in the real cached entry (BLUE ga − RED ga, same EVEN<=5 / favored 6-18 / heavy>18 bands the
+  live engine uses) — illustrative of the real game's shape, but NOT a full re-run of
+  lib/riot.mjs's actual risk/duo/rank-gap/bot-synergy-adjusted lane math. The TEAM footer,
+  one-liner, DRAFT pill and win% ARE the real, unmodified API response for this match.
+-->
+<style>
+  :root { --bg:#0e1015; --card:#181b22; --line:#262b36; --txt:#e8eaf0; --dim:#8a91a3;
+          --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; --red:#d97a4a; }
+  * { box-sizing:border-box; margin:0; }
+  html, body { overflow-x:hidden; }
+  body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; position:relative; }
+
+  /* ==== 1. Side artwork rails — fixed, hidden below 1600px, ~200-320px wide above it ==== */
+  .rail { position:fixed; top:0; bottom:0; width:min(320px, calc((100vw - 1200px) / 2 - 24px));
+    background-image:url('https://ddragon.leagueoflegends.com/cdn/img/champion/splash/Warwick_0.jpg');
+    background-size:cover; background-position:center 22%; z-index:0; display:none; }
+  .rail::after { content:''; position:absolute; inset:0;
+    background:
+      linear-gradient(to right, transparent 0%, var(--bg) 92%),
+      linear-gradient(to bottom, rgba(14,16,21,.5) 0%, rgba(14,16,21,.35) 40%, rgba(14,16,21,.88) 100%); }
+  .rail-left { left:0; }
+  .rail-right { right:0; transform:scaleX(-1); }
+  @media (min-width:1600px) { .rail { display:block; } }
+
+  .wrap { max-width:1200px; margin:auto; position:relative; z-index:1; }
+
+  /* ==== 4. Header branding: gold LoL wordmark + UNOFFICIAL badge ==== */
+  .mock-header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:2px; }
+  .lol-logo { height:26px; width:auto; display:block; filter:drop-shadow(0 0 6px rgba(199,155,59,.35)); }
+  h1 { font-size:22px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  h1 span.brand { color:var(--ok); }
+  .unofficial-badge { font-size:10px; font-weight:800; letter-spacing:.6px; text-transform:uppercase;
+    background:#3a2d10; color:var(--mid); border:1px solid var(--mid); border-radius:99px; padding:2px 8px; }
+  .sub { color:var(--dim); font-size:13px; margin:6px 0 22px; }
+
+  /* mockup corner banner */
+  .mockup-banner { position:fixed; top:14px; right:14px; z-index:50; background:#3a1616; color:var(--bad);
+    border:1px solid var(--bad); border-radius:8px; padding:6px 12px; font-size:12px; font-weight:800;
+    letter-spacing:.4px; text-transform:uppercase; box-shadow:0 4px 16px rgba(0,0,0,.4); pointer-events:none; }
+
+  /* ---- reused verbatim from src/style.css so this reads as the same visual language ---- */
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:12px; overflow:hidden; }
+  .head { display:flex; align-items:center; gap:12px; padding:14px 16px; flex-wrap:wrap; }
+  .badge { font-weight:800; font-size:12px; padding:4px 10px; border-radius:99px; white-space:nowrap; }
+  .b-ok { background:#123527; color:var(--ok); } .b-mid { background:#3a2d10; color:var(--mid); } .b-bad { background:#3a1616; color:var(--bad); }
+  .res-V { color:var(--ok); font-weight:700; } .res-D { color:var(--bad); font-weight:700; }
+  .details { display:block; border-top:1px solid var(--line); padding:12px 16px; overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin:8px 0 0; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--dim); font-weight:600; }
+  .gold { color:#f2c34c; font-weight:800; }
+  .tm-blue { color:var(--blue); font-weight:800; } .tm-red { color:var(--red); font-weight:800; }
+  .badge-mvp, .badge-ace { border:1px solid currentColor; border-radius:99px; padding:0 6px; font-size:10px; font-weight:800; }
+  .badge-mvp { color:#f2c34c; } .badge-ace { color:#c77dff; }
+  .champ-c { width:1%; white-space:nowrap; text-align:center; }
+  .chip { font-size:10px; background:#20242d; border:1px solid var(--line); border-radius:99px; padding:1px 7px; color:var(--dim); white-space:nowrap; cursor:default; }
+  .chip.cs-good { color:var(--ok); border-color:var(--ok); }
+  .chip.cs-ok { color:var(--mid); border-color:var(--mid); }
+  .chip.flag-otp-denied { color:var(--mid); border-color:var(--mid); }
+  .chip.flag-tilt { color:var(--mid); border-color:var(--mid); }
+  .chip.flag-countered { color:var(--bad); border-color:var(--bad); }
+  .chip.flag-duo { color:var(--blue); border-color:var(--blue); }
+  .chip.flag-otp { color:var(--blue); border-color:var(--blue); }
+  .chip.flag-mastery { color:var(--blue); border-color:var(--blue); }
+  .chip.streak-win { color:var(--ok); border-color:var(--ok); }
+  .chip.streak-loss { color:var(--bad); border-color:var(--bad); }
+  .chip.synergy-pos { color:var(--ok); border-color:var(--ok); }
+  .matchup { margin-bottom:0; }
+  .matchup td { vertical-align:top; white-space:normal; }
+  .matchup .mid-v { text-align:center; white-space:nowrap; min-width:90px; padding-top:8px; }
+  .wp-line { margin-top:3px; font-size:11px; }
+  .wp-blue { color:var(--blue); } .wp-red { color:var(--red); } .wp-hi { font-weight:800; }
+  .draft-pill { display:inline-flex; align-items:center; margin-top:5px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; font-size:11px; white-space:nowrap; }
+  .draft-pill.draft-bad { border-color:var(--bad); }
+  .draft-verdict { font-weight:700; } .draft-pill.draft-bad .draft-verdict { color:var(--bad); }
+  .draft-comp { color:var(--dim); }
+  .matchup .rgt { text-align:right; }
+  .matchup .teamrow { background:rgba(255,255,255,.03); }
+  .matchup .teamrow td { border-top:2px solid var(--line); border-bottom:none; padding:10px 8px; }
+  .af-count { color:var(--mid); font-weight:400; }
+  .place { color:var(--dim); font-size:11px; font-weight:700; }
+  .rank-tag { font-size:11px; font-weight:700; border:1px solid var(--line); border-radius:4px; padding:0 3px; white-space:nowrap; }
+  .p-main { display:flex; align-items:baseline; gap:6px; }
+  .p-main-info { min-width:0; }
+  .p-main .p-cell-edge { margin-left:auto; flex-shrink:0; }
+  .matchup .pname { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+  .p-chips { display:flex; gap:4px; flex-wrap:wrap; margin-top:3px; }
+  .matchup tr:not(.teamrow) .rgt { text-align:left; }
+  .matchup tr:not(.teamrow) .rgt .p-chips { justify-content:flex-end; }
+  .lv-even { color:var(--ok); } .lv-blue { color:var(--blue); font-weight:700; } .lv-red { color:var(--red); font-weight:700; }
+  .lv-even, .lv-blue, .lv-red { cursor:help; border-bottom:1px dotted currentColor; }
+  .dim { color:var(--dim); font-size:13px; }
+  .foot { margin-top:32px; padding:16px 0; border-top:1px solid var(--line); font-size:12px; text-align:center; }
+  .foot a { color:var(--ok); text-decoration:none; font-weight:700; }
+  .col-res { width:64px; flex-shrink:0; }
+  .col-champ { display:flex; align-items:center; gap:8px; width:150px; flex-shrink:0; }
+  .col-kda { width:70px; flex-shrink:0; color:var(--dim); }
+  .one-h { color:var(--dim); font-size:12px; flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row-date { color:var(--dim); font-size:13px; white-space:nowrap; }
+
+  /* ==== 2. Role icon (Favored column) ==== */
+  .role-icon { width:16px; height:16px; display:block; margin:0 auto 3px; filter:brightness(0) invert(1); opacity:.55; }
+
+  /* ==== 3. Champion square icon (replaces plain-text champ name) ==== */
+  .champ-icon { width:36px; height:36px; border-radius:9px; display:block; object-fit:cover;
+    border:2px solid var(--line); box-shadow:0 1px 4px rgba(0,0,0,.4); }
+  .champ-icon.team-blue { border-color:var(--blue); }
+  .champ-icon.team-red { border-color:var(--red); }
+  .head .champ-icon { width:30px; height:30px; border-radius:7px; }
+</style>
+</head>
+<body>
+
+<div class="mockup-banner">MOCKUP — not live</div>
+
+<div class="rail rail-left" aria-hidden="true"></div>
+<div class="rail rail-right" aria-hidden="true"></div>
+
+<div class="wrap">
+  <div class="mock-header">
+    <img class="lol-logo" src="https://upload.wikimedia.org/wikipedia/commons/d/d8/League_of_Legends_2019_vector.svg" alt="League of Legends">
+    <h1>LoL <span class="brand">Matchmaking Fairness</span> <span class="unofficial-badge">Unofficial</span></h1>
+  </div>
+  <div class="sub">Visual redesign mockup — side artwork rails, role icons, champion icons, header branding. One real cached game, for comparison against the live layout.</div>
+
+  <div class="card open">
+    <div class="head">
+      <span class="res-D">Defeat</span>
+      <span class="col-champ">
+        <img class="champ-icon team-blue" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Warwick.png" alt="Warwick" title="Warwick">
+        <span>Warwick</span>
+      </span>
+      <span class="col-kda">2/8/4</span>
+      <span class="badge b-bad" title="GA gap 63 vs 90 · 2 enemy duos (24 GA edge) · mid blown out (Δ47) · net lanes Δ41 for enemy">NOT FAIR</span>
+      <span class="one-h">Your Δ47 mid lane + 2 enemy duos tipped it against you.</span>
+      <span class="row-date">32m 31s</span>
+    </div>
+    <div class="details">
+      <table class="matchup">
+        <colgroup><col style="width:8%"><col style="width:36%"><col style="width:12%"><col style="width:36%"><col style="width:8%"></colgroup>
+        <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span></th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span></th><th class="champ-c"></th></tr>
+
+        <!-- TOP -->
+        <tr>
+          <td class="champ-c"><img class="champ-icon team-blue" title="Kaisa" alt="Kaisa" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Kaisa.png"></td>
+          <td>
+            <div class="p-main"><span class="p-main-info"><span class="place">#2</span> <span class="pname">Reaver Demon#dd666</span> <span class="dim">15/6/9</span> <b>GA 68</b></span><span class="p-cell-edge"><span class="rank-tag dim" title="Emerald 2, 50% over 527 games">E2 · 50%</span></span></div>
+            <div class="p-chips"><span class="badge-ace" title="Best performance of the losing team">ACE</span><span class="chip flag-otp" title="Plays this champion a lot and masters it">OTP</span><span class="chip cs-ok" title="Decent farming (7+ per minute)">7.6 cs</span></div>
+          </td>
+          <td class="mid-v">
+            <img class="role-icon" title="Top lane" alt="Top" src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-top.png">
+            <span class="lv-blue" title="Blue side favored: +9 GA advantage before the game started">BLUE +9</span>
+          </td>
+          <td class="rgt">
+            <div class="p-main"><span class="p-main-info"><span class="place">#7</span> <b>GA 59</b> <span class="dim">4/10/11</span></span><span class="p-cell-edge"><span class="pname">ThatLuca#EUW</span></span></div>
+            <div class="p-chips"></div>
+          </td>
+          <td class="champ-c rgt"><img class="champ-icon team-red" title="Pantheon" alt="Pantheon" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Pantheon.png"></td>
+        </tr>
+
+        <!-- JUNGLE -->
+        <tr>
+          <td class="champ-c"><img class="champ-icon team-blue" title="Warwick" alt="Warwick" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Warwick.png"></td>
+          <td>
+            <div class="p-main"><span class="p-main-info"><span class="place">#9</span> <span class="pname">xDevilStreet#EUW</span> <span class="dim">2/8/4</span> <b>GA 75</b></span><span class="p-cell-edge"><span class="rank-tag dim" title="Emerald 1, 50% over 307 games">E1 · 50%</span></span></div>
+            <div class="p-chips"><span class="chip flag-otp" title="Plays this champion a lot and masters it">OTP</span><span class="chip flag-countered" title="Warwick is countered by Lillia">countered</span><span class="chip streak-win" title="Win streak entering this game">🔥 3W</span></div>
+          </td>
+          <td class="mid-v">
+            <img class="role-icon" title="Jungle" alt="Jungle" src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-jungle.png">
+            <span class="lv-blue" title="Blue side favored: +6 GA advantage before the game started (counter penalty is a DRAFT-only factor — see the DRAFT pill below)">BLUE +6</span>
+          </td>
+          <td class="rgt">
+            <div class="p-main"><span class="p-main-info"><span class="rank-tag dim" title="Emerald 1, 51% over 495 games">E1 · 51%</span> <span class="place">#1</span> <b>GA 69</b> <span class="dim">11/5/14</span></span><span class="p-cell-edge"><span class="pname">Martin Sundelin#KCORP</span></span></div>
+            <div class="p-chips"><span class="badge-mvp" title="Best performance of the winning team">MVP</span><span class="chip flag-otp-denied" title="One-trick on Warwick but not playing it this game">OTP denied</span><span class="chip flag-mastery" title="Skilled on this champion but not playing it much lately">854k mastery</span><span class="chip flag-duo" title="Duo with Rasmus Winther#2911 — 3W-2L together in their last 5 shared games">DUO</span><span class="chip streak-win" title="Win streak entering this game">🔥 3W</span></div>
+          </td>
+          <td class="champ-c rgt"><img class="champ-icon team-red" title="Lillia" alt="Lillia" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Lillia.png"></td>
+        </tr>
+
+        <!-- MID -->
+        <tr>
+          <td class="champ-c"><img class="champ-icon team-blue" title="Xerath" alt="Xerath" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Xerath.png"></td>
+          <td>
+            <div class="p-main"><span class="p-main-info"><span class="place">#10</span> <span class="pname">handofblood0#EUW</span> <span class="dim">1/8/7</span> <b>GA 40</b></span><span class="p-cell-edge"><span class="rank-tag dim" title="Emerald 1, 51% over 221 games">E1 · 51%</span></span></div>
+            <div class="p-chips"><span class="chip" title="Average farming">6.6 cs</span></div>
+          </td>
+          <td class="mid-v">
+            <img class="role-icon" title="Middle lane" alt="Middle" src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-middle.png">
+            <span class="lv-red" title="Red side HEAVILY favored: +47 GA advantage before the game started">RED +47</span>
+          </td>
+          <td class="rgt">
+            <div class="p-main"><span class="p-main-info"><span class="place">#5</span> <b>GA 80</b> <span class="dim">13/7/13</span></span><span class="p-cell-edge"><span class="pname">Rasmus Winther#2911</span></span></div>
+            <div class="p-chips"><span class="chip flag-otp" title="Plays this champion a lot and masters it">OTP</span><span class="chip flag-duo" title="Duo with Martin Sundelin#KCORP — 3W-2L together in their last 5 shared games">DUO</span><span class="chip streak-win" title="Win streak entering this game">🔥 3W</span><span class="chip cs-ok" title="Decent farming (7+ per minute)">7 cs</span></div>
+          </td>
+          <td class="champ-c rgt"><img class="champ-icon team-red" title="Syndra" alt="Syndra" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Syndra.png"></td>
+        </tr>
+
+        <!-- BOTTOM (ADC) -->
+        <tr>
+          <td class="champ-c"><img class="champ-icon team-blue" title="Samira" alt="Samira" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Samira.png"></td>
+          <td>
+            <div class="p-main"><span class="p-main-info"><span class="place">#6</span> <span class="pname">Yugoslovenisback#EUW</span> <span class="dim">8/9/7</span> <b>GA 64</b></span><span class="p-cell-edge"><span class="rank-tag dim" title="Emerald 2, 49% over 776 games">E2 · 49%</span></span></div>
+            <div class="p-chips"><span class="chip flag-otp" title="Plays this champion a lot and masters it">OTP</span><span class="chip" title="Average farming">6.2 cs</span></div>
+          </td>
+          <td class="mid-v">
+            <img class="role-icon" title="Bottom lane (ADC)" alt="ADC" src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-bottom.png">
+            <span class="lv-blue" title="Blue side favored: +18 GA advantage before the game started">BLUE +18</span>
+          </td>
+          <td class="rgt">
+            <div class="p-main"><span class="p-main-info"><span class="place">#4</span> <b>GA 46</b> <span class="dim">11/6/12</span></span><span class="p-cell-edge"><span class="pname">TC MrExecius#GEZ</span></span></div>
+            <div class="p-chips"><span class="chip flag-duo" title="Duo with Din#Mando — 1W-3L together in their last 5 shared games">DUO</span><span class="chip streak-loss" title="Loss streak entering this game">❄️ 3L</span><span class="chip cs-good" title="Good farming (8+ per minute)">8.8 cs</span><span class="chip synergy-pos" title="Kalista+Braum: 51.8% over 733 games — +2.1% vs their solo winrates (patch 16.16.1)">duo +2.1%</span></div>
+          </td>
+          <td class="champ-c rgt"><img class="champ-icon team-red" title="Kalista" alt="Kalista" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Kalista.png"></td>
+        </tr>
+
+        <!-- UTILITY (SUPPORT) -->
+        <tr>
+          <td class="champ-c"><img class="champ-icon team-blue" title="Sylas" alt="Sylas" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Sylas.png"></td>
+          <td>
+            <div class="p-main"><span class="p-main-info"><span class="place">#8</span> <span class="pname">Psohn#00101</span> <span class="dim">7/12/10</span> <b>GA 47</b></span><span class="p-cell-edge"><span class="rank-tag dim" title="Emerald 1, 52% over 260 games">E1 · 52%</span></span></div>
+            <div class="p-chips"><span class="chip flag-tilt" title="3+ games in the last ~3h with at least 2 losses — possible session tilt">tilt?</span><span class="chip streak-loss" title="Loss streak entering this game">❄️ 3L</span></div>
+          </td>
+          <td class="mid-v">
+            <img class="role-icon" title="Support" alt="Support" src="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-utility.png">
+            <span class="lv-red" title="Red side favored: +8 GA advantage before the game started">RED +8</span>
+          </td>
+          <td class="rgt">
+            <div class="p-main"><span class="p-main-info"><span class="place">#3</span> <b>GA 55</b> <span class="dim">4/6/29</span></span><span class="p-cell-edge"><span class="pname">Din#Mando</span></span></div>
+            <div class="p-chips" style="justify-content:flex-end"><span class="chip flag-duo" title="Duo with TC MrExecius#GEZ — 1W-3L together in their last 5 shared games">DUO</span></div>
+          </td>
+          <td class="champ-c rgt"><img class="champ-icon team-red" title="Braum" alt="Braum" src="https://ddragon.leagueoflegends.com/cdn/16.16.1/img/champion/Braum.png"></td>
+        </tr>
+
+        <tr class="teamrow">
+          <td colspan="2"><b><span class="tm-blue">TEAM</span> · loss · <span title="65% team average + 35% average of the top 2 GAs">team GA</span> 63</b></td>
+          <td class="mid-v">
+            <span class="badge b-bad" title="EVEN overall — enemy duo (24 GA edge) and mid blown out (Δ47) offset lanes leaning your way — net stayed against you">NOT FAIR</span>
+            <div class="wp-line">win% <span class="wp-blue">BLUE 19</span> – <span class="wp-red wp-hi">RED 81</span></div>
+            <div class="draft-pill draft-bad" title="Your team lost champion select — picked into counters or a weak duo. This is on the players, not Riot's matchmaking. Warwick countered by Lillia −4 · bot synergy -2.1"><span class="draft-verdict">DRAFT · BAD -6.2</span><span class="draft-comp"> — details on hover</span></div>
+          </td>
+          <td colspan="2" class="rgt"><b><span class="tm-red">TEAM</span> · win · <span title="65% team average + 35% average of the top 2 GAs">team GA</span> 66 (<span title="GA bonus for proven duo synergy">+24 duo</span>)</b></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span class="dim">Design mockup for review only — nothing on this page is live or interactive · not endorsed by Riot Games</span>
+  </footer>
+</div>
+
+</body>
+</html>
