@@ -388,6 +388,12 @@ let CTX = { riotId: '', region: 'euw' };
 // used to be saved with whatever raw string was in the field, so "Name #TAG" (typed with a
 // space) and "Name#TAG" would end up as two separate entries pointing at the same account.
 let clerk = null;
+// v4.34: a bookmark someone tried to ADD while signed out (see the #bmStar click handler below) —
+// completed automatically by the Clerk listener further down if they finish signing in, so they
+// don't have to notice and re-click the star themselves. Best-effort only ("re-click is fine" is
+// an acceptable fallback per the design brief) — a page reload or switching riotId before signing
+// in just drops it, same as never having clicked at all.
+let pendingBookmark = null;
 const dedupeBookmarks = list => {
   const seen = new Map();
   for (const b of list || []) {
@@ -421,6 +427,10 @@ function updateStar() {
   const on = isBM(normRiotId($('#riotId').value));
   $('#bmStar').textContent = on ? '★' : '☆';
   $('#bmStar').classList.toggle('starred', on);
+  // v4.34: bookmarking now requires sign-in (see the click handler below) — signed out, the star
+  // says so directly rather than leaving the click's actual behavior (open the sign-in modal
+  // instead of saving) as a surprise.
+  $('#bmStar').title = clerk?.user ? 'Bookmark this profile' : 'Sign in to save favorites';
 }
 async function authHdr() { try { const t = clerk?.session ? await clerk.session.getToken() : null; return t ? { Authorization: 'Bearer ' + t } : {}; } catch { return {}; } }
 async function serverBM(op, riotId, region) {
@@ -437,6 +447,19 @@ $('#bmStar').addEventListener('click', async () => {
   const riotId = normRiotId($('#riotId').value);
   if (!riotId.includes('#')) return;
   const region = $('#region').value, on = isBM(riotId);
+  // v4.34: ADDING a new bookmark requires sign-in — existing localStorage bookmarks (saved
+  // before this gate, or by an anonymous visitor) keep showing read-only in the dropdown and
+  // stay fully removable regardless of sign-in state (removal is never gated, only new adds —
+  // an anonymous "favorite" can't sync across devices anyway, and silently accumulating
+  // client-only ones was the actual problem this closes). Opens Clerk's sign-in modal when
+  // available; if this deployment has no Clerk key configured at all, there's no modal to open,
+  // so a status hint explains why the click did nothing instead.
+  if (!on && !clerk?.user) {
+    pendingBookmark = { riotId, region };
+    if (clerk) clerk.openSignIn();
+    else $('#status').textContent = 'Sign in to save favorites.';
+    return;
+  }
   setBM(on ? getBM().filter(b => normRiotId(b.riotId).toLowerCase() !== riotId.toLowerCase()) : [...getBM(), { riotId, region }]);
   const synced = await serverBM(on ? 'remove' : 'add', riotId, region);
   if (synced) setBM(synced);
@@ -616,6 +639,18 @@ if (CLERK_PK) {
   import('@clerk/clerk-js').then(async ({ Clerk }) => {
     clerk = new Clerk(CLERK_PK);
     await clerk.load();
+    // v4.34: completes a bookmark ADD the user started while signed out (see the #bmStar click
+    // handler) as soon as sign-in actually finishes, so they don't have to notice the star didn't
+    // fill in and re-click it themselves. Registered unconditionally (harmless if they were
+    // already signed in, or never click the star while signed out at all — pendingBookmark just
+    // stays null and this never fires).
+    clerk.addListener(({ user }) => {
+      if (!user || !pendingBookmark) return;
+      const { riotId, region } = pendingBookmark;
+      pendingBookmark = null;
+      if (!isBM(riotId)) setBM([...getBM(), { riotId, region }]);
+      serverBM('add', riotId, region).then(synced => { if (synced) setBM(synced); });
+    });
     const el = $('#clerkBtn');
     if (clerk.user) {
       clerk.mountUserButton(el);
