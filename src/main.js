@@ -414,26 +414,50 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
 (function restoreLastSearch() {
   let cached;
   try { cached = JSON.parse(localStorage.getItem('lastSearch') || 'null'); } catch { cached = null; }
-  if (!cached || !cached.riotId || !Array.isArray(cached.games)) return;
-  CTX = { riotId: cached.riotId, region: cached.region || 'euw' };
-  $('#riotId').value = cached.riotId;
-  $('#region').value = cached.region || 'euw';
-  updateStar();
-  // v4.28: explicit, not just implied by renderRows' own container-gated hook below — the
-  // background must come up immediately from whatever's in localStorage, independent of that
-  // hook staying wired correctly forever. (renderRows fires it too; calling it twice here is
-  // harmless — same computation, same result, just belt-and-suspenders.)
-  updateBgSplash(cached.games);
-  renderRows(cached.games, $('#list'), 'm', cached.riotId);
-  loadHistory(0);
-  if (Date.now() - (cached.ts || 0) < 60000) return; // cache is fresh enough, skip the refetch
-  fetch(`${API}/api/matches?riotId=${encodeURIComponent(cached.riotId)}&games=${$('#games').value}&region=${cached.region}`, { headers: hdrs().headers })
+  // v4.30: "known riotId" now covers TWO sources — a real lastSearch cache (games ready to render
+  // immediately), or just the plain riotId remembered from any prior successful lookup/live-check
+  // (see the simple 'riotId' localStorage key set elsewhere) with no games cached alongside it.
+  // Previously only the first case did anything at all — a returning profile with no lastSearch
+  // (or a stale/empty one) rendered NOTHING at page load, not even an attempt, leaving the search
+  // box showing a name over a blank page. Both cases now at least attempt the same silent
+  // /api/matches refresh below.
+  const knownRiotId = (cached && cached.riotId) || localStorage.getItem('riotId') || '';
+  if (!knownRiotId) return; // nothing remembered at all — first-ever visit, nothing to restore
+
+  let renderedRows = false;
+  if (cached && cached.riotId && Array.isArray(cached.games) && cached.games.length) {
+    CTX = { riotId: cached.riotId, region: cached.region || 'euw' };
+    $('#riotId').value = cached.riotId;
+    $('#region').value = cached.region || 'euw';
+    updateStar();
+    // v4.28: explicit, not just implied by renderRows' own container-gated hook below — the
+    // background must come up immediately from whatever's in localStorage, independent of that
+    // hook staying wired correctly forever. (renderRows fires it too; calling it twice here is
+    // harmless — same computation, same result, just belt-and-suspenders.)
+    updateBgSplash(cached.games);
+    renderRows(cached.games, $('#list'), 'm', cached.riotId);
+    loadHistory(0);
+    renderedRows = true;
+    if (Date.now() - (cached.ts || 0) < 60000) return; // cache is fresh enough, skip the refetch
+  } else {
+    $('#riotId').value = knownRiotId; // already the input's default value (see the top of the file) — explicit here too since this branch may run instead of that assignment ever mattering
+  }
+  const attemptRegion = (cached && cached.region) || $('#region').value || 'euw';
+  fetch(`${API}/api/matches?riotId=${encodeURIComponent(knownRiotId)}&games=${$('#games').value}&region=${attemptRegion}`, { headers: hdrs().headers })
     .then(r => (r.ok ? r.json() : Promise.reject()))
     .then(data => {
-      renderRows(data.games, $('#list'), 'm', cached.riotId);
-      localStorage.setItem('lastSearch', JSON.stringify({ riotId: cached.riotId, region: cached.region, games: data.games, ts: Date.now() }));
+      renderRows(data.games, $('#list'), 'm', knownRiotId);
+      localStorage.setItem('lastSearch', JSON.stringify({ riotId: knownRiotId, region: attemptRegion, games: data.games, ts: Date.now() }));
     })
-    .catch(() => {}); // silent — keep the cached view as-is
+    .catch(async () => {
+      // v4.30: previously silent — this whole IIFE runs before any user interaction, so unlike
+      // the #f submit handler there's no key-error UI feedback loop to fall into; a dead/missing
+      // key here used to just leave the page as whatever was already rendered (fine when
+      // renderedRows is true — "keep the cached view as-is" is still correct there) or, when
+      // nothing had rendered yet, leave it completely blank. Only fall back when there's truly
+      // nothing on screen already, so a real (if stale) cached list is never replaced/duplicated.
+      if (!renderedRows) await keylessFallback({ riotId: knownRiotId, region: attemptRegion });
+    });
 })();
 
 // After a live analysis (see checkLive's liveWatch marker below), the finished game should
