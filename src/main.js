@@ -122,6 +122,13 @@ const looksLikeKey = v => /^RGAPI-/i.test(v);
 // it precisely, without touching any OTHER unrelated status text (e.g. "No ranked solo games
 // found.") that might legitimately still be showing.
 let statusHasKeyError = false;
+// v4.32: tracks whether the list currently on screen is a keylessFallback() render (cached/
+// history games standing in for a failed live search) rather than a real /api/matches result —
+// set true at the end of a successful keylessFallback(), set false by liveSearch (the shared
+// success path both the #f submit handler and refreshWithValidKey below use) and by
+// restoreLastSearch's own cached-render branch. Read by checkKeyValidity to know whether a
+// freshly-validated key should trigger an automatic upgrade from the fallback to the live list.
+let listIsKeylessFallback = false;
 async function checkKeyValidity(isRetry = false) {
   const el = $('#keyValid');
   const val = $('#apiKey').value.trim();
@@ -133,6 +140,11 @@ async function checkKeyValidity(isRetry = false) {
     if (data.valid) {
       el.textContent = '✓'; el.title = 'This key is valid'; el.className = 'ok';
       if (statusHasKeyError) { $('#status').textContent = ''; statusHasKeyError = false; }
+      // v4.32: a fresh, now-valid key upgrades a standing keylessFallback() list (cached/history
+      // games shown after a dead-key search) to the real live one automatically — same
+      // riotId/region/games the fallback was already showing (CTX + the #games select), no need
+      // for the user to notice and re-click "Find games" themselves.
+      if (listIsKeylessFallback) await refreshWithValidKey();
     } else if (data.status === 429 || (data.status >= 500 && data.status < 600)) {
       // Real case: a freshly pasted, genuinely valid key got a transient 429 from lol-status-v4
       // (briefly saturated, e.g. mid-search burst) and read as a flat-out invalid ✗ — Riot being
@@ -480,6 +492,7 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
     renderRows(cached.games, $('#list'), 'm', cached.riotId);
     loadHistory(0);
     renderedRows = true;
+    listIsKeylessFallback = false; // a real (if possibly stale) cached list, not a keylessFallback() stand-in
     if (Date.now() - (cached.ts || 0) < 60000) return; // cache is fresh enough, skip the refetch
   } else {
     $('#riotId').value = knownRiotId; // already the input's default value (see the top of the file) — explicit here too since this branch may run instead of that assignment ever mattering
@@ -489,6 +502,7 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
     .then(r => (r.ok ? r.json() : Promise.reject()))
     .then(data => {
       renderRows(data.games, $('#list'), 'm', knownRiotId);
+      listIsKeylessFallback = false; // a genuine live refresh succeeded
       localStorage.setItem('lastSearch', JSON.stringify({ riotId: knownRiotId, region: attemptRegion, games: data.games, ts: Date.now() }));
     })
     .catch(async () => {
@@ -502,7 +516,10 @@ function syncLastSearchAnalyzed(riotId, matchId, entry) {
         // Same notice the #f submit handler shows on this same fallback — no raw key-error text
         // to prepend here (this runs before any user action, there's nothing to soften), just the
         // one calm line explaining why they're looking at cached games instead of a live list.
+        // v4.32: flagged so a freshly typed/pasted key clears it (see the #apiKey input listener)
+        // instead of leaving it stuck on screen forever.
         $('#status').innerHTML = '<span class="dim">Live game list unavailable (no valid key) — showing analyzed games from cache.</span>';
+        statusHasKeyError = true;
       }
     });
 })();
@@ -637,8 +654,51 @@ async function keylessFallback(attempt) {
     $('#list').innerHTML = '';
     renderRows(d.games, $('#list'), 'm', CTX.riotId);
     loadHistory(0);
+    listIsKeylessFallback = true;
     return true;
   } catch { return false; }
+}
+
+// v4.32: the actual live-search request+render, factored out of the #f submit handler so
+// refreshWithValidKey (below) can reuse the exact same success path — throws on failure (same
+// contract the submit handler's try block always had), so both callers share one error story.
+// Always resets listIsKeylessFallback — a successful live fetch means whatever's on screen is no
+// longer a keylessFallback() stand-in, regardless of which caller triggered it.
+async function liveSearch(attempt, headers) {
+  const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(attempt.riotId)}&games=${$('#games').value}&region=${attempt.region}`, { headers });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.status);
+  CTX = attempt;
+  localStorage.setItem('riotId', CTX.riotId);
+  $('#list').innerHTML = ''; // only clear the previous list once the new one is ready to replace it
+  renderRows(data.games, $('#list'), 'm', CTX.riotId);
+  listIsKeylessFallback = false;
+  // The rows speak for themselves (✓ badges already mark analyzed games) — no instructional
+  // sentence needed once there's a list to look at; only the empty-results case still needs a
+  // status message, since there's nothing on screen to explain otherwise.
+  $('#status').textContent = data.games.length ? '' : 'No ranked solo games found.';
+  localStorage.setItem('lastSearch', JSON.stringify({ riotId: CTX.riotId, region: CTX.region, games: data.games, ts: Date.now() }));
+  loadHistory(0);
+}
+
+// v4.32: called from checkKeyValidity when a freshly typed/pasted key validates WHILE the list on
+// screen is a keylessFallback() render — upgrades it to the real live list automatically, same
+// riotId/region CTX already holds (keylessFallback sets it) and the current #games count, no need
+// for the user to notice and re-click "Find games". Same loading-state treatment (spinner on #go,
+// beginBusy/endBusy) as a manual submit, even though nothing was actually submitted here.
+async function refreshWithValidKey() {
+  if (!CTX.riotId) return;
+  const attempt = { riotId: CTX.riotId, region: CTX.region };
+  const goLabel = $('#go').textContent;
+  beginBusy();
+  $('#go').innerHTML = '<span class="spinner"></span>';
+  try {
+    await liveSearch(attempt, hdrs().headers);
+  } catch {
+    // Silent — the key just validated successfully via checkKeyValidity, so a failure here is
+    // some other transient hiccup; leave the still-good fallback list exactly as it was rather
+    // than replace it with a scary error the user didn't ask for.
+  } finally { endBusy(); $('#go').textContent = goLabel; }
 }
 
 $('#f').addEventListener('submit', async e => {
@@ -656,19 +716,7 @@ $('#f').addEventListener('submit', async e => {
   let sentKey = false;
   try {
     const { headers: h, key: hKey } = hdrs(); sentKey = hKey;
-    const r = await fetch(`${API}/api/matches?riotId=${encodeURIComponent(attempt.riotId)}&games=${$('#games').value}&region=${attempt.region}`, { headers: h });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || r.status);
-    CTX = attempt;
-    localStorage.setItem('riotId', CTX.riotId);
-    $('#list').innerHTML = ''; // only clear the previous list once the new one is ready to replace it
-    renderRows(data.games, $('#list'), 'm', CTX.riotId);
-    // The rows speak for themselves (✓ badges already mark analyzed games) — no instructional
-    // sentence needed once there's a list to look at; only the empty-results case still needs a
-    // status message, since there's nothing on screen to explain otherwise.
-    $('#status').textContent = data.games.length ? '' : 'No ranked solo games found.';
-    localStorage.setItem('lastSearch', JSON.stringify({ riotId: CTX.riotId, region: CTX.region, games: data.games, ts: Date.now() }));
-    loadHistory(0);
+    await liveSearch(attempt, h);
   } catch (err) {
     // v4.28: handleKeyError may already have written its own status message (a dead PASTED key
     // gets cleared with its own explanation) — captured before the fallback runs so it can be
@@ -679,9 +727,20 @@ $('#f').addEventListener('submit', async e => {
     const keyNote = handled ? $('#status').innerHTML : `<span class="dim">${esc(err.message)}</span>`;
     const gotFallback = await keylessFallback(attempt);
     if (gotFallback) {
+      // v4.32: ALL key-related status writes must flag statusHasKeyError, not just the ones
+      // handleKeyError itself covers — this fallback notice is itself always about a dead/missing
+      // key regardless of what specifically triggered it, so the input listener's "new key
+      // typed, clear the stale message" logic needs to see it too.
       $('#status').innerHTML = keyNote + '<br><span class="dim">Live game list unavailable (no valid key) — showing analyzed games from cache.</span>';
+      statusHasKeyError = true;
     } else if (!handled) {
       $('#status').innerHTML = '❌ ' + esc(err.message);
+      // v4.32: only flag as a clearable key-error status if the underlying failure actually WAS
+      // about a dead/missing key (both the pasted-key and shared-key 401 paths share this exact
+      // "key invalid or expired" wording — see lib/riot.mjs) — a genuinely unrelated failure (bad
+      // riotId, a Riot outage) must not get silently wiped the next time the user edits the key
+      // field.
+      if (String(err?.message || '').includes('key invalid or expired')) statusHasKeyError = true;
     }
   }
   finally { endBusy(); $('#go').textContent = goLabel; }
