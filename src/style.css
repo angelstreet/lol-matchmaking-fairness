@@ -1,13 +1,47 @@
 :root { --bg:#0e1015; --card:#181b22; --line:#262b36; --txt:#e8eaf0; --dim:#8a91a3;
-        --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; --red:#d97a4a; }
+        --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; --red:#d97a4a;
+        --splash-img:none; }
 * { box-sizing:border-box; margin:0; }
 /* v4.19: widened 980 -> 1200 — the rank·WR tags (v4.18) pushed some matchup player cells to wrap
    onto 2 lines at the old width, and 980 was leaving large unused side margins on typical desktop
    screens anyway. Side margins stay auto-centered (margin:auto unchanged); everything below that
    depends on width uses %, ch, or its own unrelated fixed px (e.g. .pname's 150px truncation) —
    nothing was hardcoded against 980 specifically, so rows just gain slack, they don't reflow. */
-body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; max-width:1200px; margin:auto; }
+body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui, sans-serif; padding:24px; max-width:1200px; margin:auto; position:relative; }
+/* v4.27: full-page background art — approved from public/mockup-v2.html (now removed). The
+   searched player's most-played champion across their currently-listed games (main.js's
+   updateBgSplash, called from renderRows) as a Data Dragon splash, darkened to ~13% visibility
+   under a solid dark overlay stacked in the SAME background-image list (drawn first = on top) —
+   ambiance, not wallpaper. --splash-img defaults to 'none' (plain bg — before any search, or a
+   search whose games carry no champ data) and main.js only ever commits a NEW url() after
+   preloading it successfully, so a 404 silently keeps whatever was showing (or stays plain) rather
+   than flashing a broken background. .has-splash (toggled alongside the CSS var) drives the
+   opacity fade so the very first appearance (blank -> first champ) transitions smoothly instead of
+   popping in; a later re-search's image swap is instant (no cross-fade between two photos), which
+   is an intentional, low-risk simplification — see main.js's updateBgSplash comment. z-index:0
+   sits behind everything real (#app below is the z-index:1 stacking context that holds it there);
+   pointer-events:none so it can never intercept a click meant for the page above it. */
+body::before { content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    linear-gradient(rgba(14,16,21,.87), rgba(14,16,21,.87)),
+    var(--splash-img);
+  background-size:cover; background-position:center 18%;
+  opacity:0; transition:opacity .5s ease; }
+body.has-splash::before { opacity:1; }
+/* #app holds everything main.js renders (header, form, game list, footer) as direct children —
+   one stacking context above body::before is enough to keep all of it above the background art. */
+#app { position:relative; z-index:1; }
 h1 { font-size:22px; margin-bottom:4px; } h1 span { color:var(--ok); }
+/* v4.27: header branding — the official gold League of Legends wordmark (Wikimedia Commons SVG,
+   genuinely gold in the source file at fill #c79b3b, no CSS tinting needed) instead of spelling
+   out "LoL" in the title text too (the wordmark already carries that branding). Small amber
+   UNOFFICIAL pill next to the title — a plain class selector beats the generic `h1 span` rule
+   above on specificity (0,1,0 > 0,0,2) regardless of source order, same trick .algo-link already
+   relies on, so this doesn't need to fight for green-vs-amber. */
+.site-header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.lol-logo { height:24px; width:auto; display:block; flex-shrink:0; filter:drop-shadow(0 0 6px rgba(199,155,59,.3)); }
+.unofficial-badge { font-size:10px; font-weight:800; letter-spacing:.6px; text-transform:uppercase;
+  background:#3a2d10; color:var(--mid); border:1px solid var(--mid); border-radius:99px; padding:2px 8px; }
 /* Right-aligned cluster in the header: the /scoring.html link immediately left of the profile
    button (#clerkBtn, populated by Clerk once it loads — mounted user button or a "Sign in"
    button). float:right (desktop) / margin-left:auto in a flex row (mobile, see the ≤640px block)
@@ -83,6 +117,21 @@ td.you + td.you { border-left:none !important; }
    actually has data for this champ (see champMetaTitle in src/main.js) — a champ missing from the
    snapshot renders as plain .champ text, no dashed underline implying a tooltip that isn't there. */
 .champ-meta { border-bottom:1px dashed var(--dim); cursor:help; }
+/* v4.27: champion square icon — matchup champ-c columns only (details tables / live card keep
+   the plain .champ text span above, out of this redesign's scope). Team-colored border instead
+   of the dashed-underline .champ-meta hint; champ-meta still adds cursor:help (the champion name
+   + WR/pick/ban line both live in the <img>'s title now, so a discovery cue is still worth
+   keeping). A 404'd icon is swapped back to a plain .champ span by the delegated error listener
+   in src/main.js — never a broken-image box. */
+.champ-icon { width:36px; height:36px; border-radius:9px; display:block; object-fit:cover;
+  border:2px solid var(--line); box-shadow:0 1px 4px rgba(0,0,0,.4); }
+.champ-icon.team-blue { border-color:var(--blue); }
+.champ-icon.team-red { border-color:var(--red); }
+.champ-icon.champ-meta { cursor:help; }
+/* Role icon (CommunityDragon's clash position-selector set) above each lane's Favored verdict —
+   forced to a dim white silhouette via filter so it reads as the same metadata weight as
+   .place/.rank-tag regardless of the source icon's own native color. */
+.role-icon { width:16px; height:16px; display:block; margin:0 auto 3px; filter:brightness(0) invert(1); opacity:.55; }
 .pcell { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .pname { white-space:nowrap; }
 .plink { color:inherit; text-decoration:none; cursor:pointer; }
@@ -163,13 +212,24 @@ td.you + td.you { border-left:none !important; }
    tallest content. Top-aligning keeps line 1 on a shared baseline regardless. */
 .matchup td { vertical-align:top; }
 .matchup .mid-v { text-align:center; white-space:nowrap; min-width:90px; padding-top:9px; }
-/* Win probability line under the TEAM row's verdict badge — team-colored, whichever side is
-   favored reads slightly bolder so the eye lands on the more confident number first. */
-.wp-line { margin-top:3px; font-size:11px; }
-.wp-blue { color:var(--blue); }
-.wp-red { color:var(--red); }
-.wp-hi { font-weight:800; }
-/* Compact "55–45" form used next to a row's badge/one-liner once that row has real entry data
+/* v4.27: win probability under the TEAM row's verdict badge — a horizontal bar (was a "BLUE 19% ·
+   RED 81%" text line): one slim rounded track, a blue segment sized to wp.blue% and a red one to
+   wp.red% (always sum to 100), each label centered in its own segment in near-white text with a
+   dark text-shadow for contrast on either color. .wp-bar itself clips to the pill shape
+   (overflow:hidden) — a segment under WP_NARROW_PCT (main.js) can't fit its own label without
+   getting clipped, so main.js drops that inline label and adds a .wp-label-out span instead,
+   positioned OUTSIDE wp-bar-wrap (which does NOT clip) just past the bar's edge on that side, in
+   the team's own color against the page background. */
+.wp-bar-wrap { position:relative; margin-top:6px; height:15px; }
+.wp-bar { display:flex; height:100%; border-radius:99px; overflow:hidden; background:var(--line); }
+.wp-seg { display:flex; align-items:center; justify-content:center; min-width:0; overflow:hidden; }
+.wp-seg-blue { background:var(--blue); }
+.wp-seg-red { background:var(--red); box-shadow:-1px 0 0 rgba(0,0,0,.3) inset; }
+.wp-seg-label { font-size:10px; font-weight:800; color:#fff; white-space:nowrap; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+.wp-label-out { position:absolute; top:50%; transform:translateY(-50%); font-size:10px; font-weight:800; white-space:nowrap; }
+.wp-label-out-blue { right:100%; margin-right:4px; color:var(--blue); }
+.wp-label-out-red { left:100%; margin-left:4px; color:var(--red); }
+/* Compact "55%–45%" form used next to a row's badge/one-liner once that row has real entry data
    (post-analyze) — dim by default like the rest of the row's secondary text. */
 .wp-compact { color:var(--dim); font-size:11px; white-space:nowrap; }
 /* v4.20: bot-lane duo synergy chip ("duo +2.4%") on the BOTTOM/UTILITY rows — green when the
@@ -298,6 +358,7 @@ h4 { margin:10px 0 2px; }
   .h1-right { float:none; margin-left:auto; }
   .algo-full { display:none; }
   .algo-short { display:inline; }
+  .lol-logo { height:19px; }
 
   /* copy reduction: mobile keeps only the essential fragment of each — see the .sub-short/
      .sub-more and .note-more split in src/main.js for what's hidden here (the "No key?" note
@@ -324,6 +385,14 @@ h4 { margin:10px 0 2px; }
   .matchup tr:not(.teamrow) { border-top:1px solid var(--line); padding:8px 0; }
   .matchup .champ-c { display:inline-block; width:auto; color:var(--dim); }
   .matchup .rank-tag { display:none; } /* stacked cards are already tight — rank is a nice-to-have here */
+  /* v4.27: champion icon shrinks (36px is desktop-sized against a wide row; 28px keeps it
+     proportionate to the stacked card's tighter line-height) rather than disappearing — unlike
+     the rank tag, it's the ONLY identifier for the champion in this cell now that the text name
+     moved into its title tooltip, so it can't just hide the way rank-tag/role-icon do here. Role
+     icon DOES hide — same "stacked cards are already tight" call as rank-tag above, and the lane
+     order itself (TOP/JUNGLE/MID/ADC/SUPPORT) is still unambiguous from the stacking order alone. */
+  .matchup .champ-icon { width:28px; height:28px; border-radius:7px; }
+  .matchup .role-icon { display:none; }
   .matchup .mid-v { text-align:center; margin:6px 0; min-width:0; } /* also the TEAM row's badge cell */
   .matchup .teamrow { border-top:2px solid var(--line); }
   .matchup .teamrow td { border-top:none; padding:4px; }

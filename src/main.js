@@ -7,7 +7,10 @@ import { PAIRS as DUO_PAIRS, PATCH as DUO_SYNERGY_PATCH } from '../lib/duosynerg
 const API = import.meta.env.VITE_API_URL || '';
 
 document.querySelector('#app').innerHTML = `
-  <h1>LoL <span>Matchmaking Fairness</span> <span class="h1-right"><a href="/scoring.html" class="algo-link">ⓘ <span class="algo-full">How we score</span><span class="algo-short">Scoring</span></a><span id="clerkBtn"></span></span></h1>
+  <div class="site-header">
+    <img class="lol-logo" src="https://upload.wikimedia.org/wikipedia/commons/d/d8/League_of_Legends_2019_vector.svg" alt="League of Legends">
+    <h1><span>Matchmaking Fairness</span> <span class="unofficial-badge">Unofficial</span> <span class="h1-right"><a href="/scoring.html" class="algo-link">ⓘ <span class="algo-full">How we score</span><span class="algo-short">Scoring</span></a><span id="clerkBtn"></span></span></h1>
+  </div>
   <div class="sub"><span class="sub-short">Was your game winnable? Ranked Solo/Duo · pre-game form · duo detection · GA scores</span><span class="sub-more"> for all 10 players · proven by shared matches · official Riot API</span></div>
   <form id="f" autocomplete="off">
     <div class="combo">
@@ -146,20 +149,34 @@ function nameLink(riotId, region) {
 
 // Win probability, poker-style — a logistic on the same effective team-GA gap the fairness check
 // itself uses (lib/riot.mjs's fairness()), so it never disagrees with everything else on the page.
-// Team-colored, and whichever side is favored reads slightly bolder (nudges the eye toward the
-// more confident number without shouting over the verdict badge it sits under). Legacy entries
-// analyzed before this feature shipped don't have g.winProb — omitted entirely rather than
-// showing a fake 50/50. Defined up here (not near its callers further down) because renderRows
-// below is invoked synchronously at module load time (via the restoreLastSearch IIFE) and needs
-// winProbCompact already initialized — a `const` declared after that call site would still be in
-// its temporal dead zone when renderRows actually runs.
+// v4.27: the TEAM footer's win% is now a horizontal bar (was a "BLUE 19% · RED 81%" text line) —
+// one slim rounded track, a blue segment sized to wp.blue% and a red one sized to wp.red% (they
+// always sum to 100), each label centered in ITS OWN segment. A segment under NARROW_PCT can't fit
+// its own label without clipping (the track itself is overflow:hidden, for the rounded-pill
+// shape), so below that threshold the label is dropped from inside the segment and rendered
+// instead as a .wp-label-out span pinned just past the bar's outer edge on that side, in the
+// team's own color against the page background — "outside/adjacent... with contrast" per the
+// design brief. Both wp.blue/wp.red can't be narrow at once (they sum to 100, NARROW_PCT<50).
+// Legacy entries analyzed before winProb shipped don't have g.winProb — omitted entirely rather
+// than showing a fake 50/50. Defined up here (not near its callers further down) because
+// renderRows below is invoked synchronously at module load time (via the restoreLastSearch IIFE)
+// and needs winProbCompact already initialized — a `const` declared after that call site would
+// still be in its temporal dead zone when renderRows actually runs.
+const WP_NARROW_PCT = 12;
 function winProbHTML(wp) {
   if (!wp) return '';
-  const blueHi = wp.blue >= wp.red;
-  return `<div class="wp-line"><span class="wp-blue${blueHi ? ' wp-hi' : ''}">BLUE ${wp.blue}%</span> · <span class="wp-red${!blueHi ? ' wp-hi' : ''}">RED ${wp.red}%</span></div>`;
+  const seg = (pct, side) => {
+    const inside = pct >= WP_NARROW_PCT ? `<span class="wp-seg-label">${pct}%</span>` : '';
+    return `<div class="wp-seg wp-seg-${side}" style="width:${pct}%">${inside}</div>`;
+  };
+  const outside = (pct, side) => pct < WP_NARROW_PCT ? `<span class="wp-label-out wp-label-out-${side}">${pct}%</span>` : '';
+  return `<div class="wp-bar-wrap" title="Estimated pre-game win chance BLUE–RED">
+    <div class="wp-bar">${seg(wp.blue, 'blue')}${seg(wp.red, 'red')}</div>
+    ${outside(wp.blue, 'blue')}${outside(wp.red, 'red')}
+  </div>`;
 }
-// Compact "55–45" form for tight spaces (row one-liners) — same null-safe convention as above.
-const winProbCompact = wp => wp ? `${wp.blue}–${wp.red}` : '';
+// Compact "55%–45%" form for tight spaces (row one-liners) — same null-safe convention as above.
+const winProbCompact = wp => wp ? `${wp.blue}%–${wp.red}%` : '';
 
 // Game-row date/duration is squeezed into a fixed column (see .col-date), so it needs to be as
 // short as possible: duration drops the seconds ("38m 24s" -> "38m", "12m (in progress)"
@@ -729,6 +746,12 @@ async function loadHistory(offset) {
 }
 
 function renderRows(games, container, prefix, rid) {
+  // v4.27: the main search-results list ($('#list'), prefix 'm') drives the full-page background
+  // splash — gated to that one container so the "analyzed history" list ($('#hist'), prefix 'h...')
+  // re-rendering doesn't fight it. Every current call site (a fresh search, restoreLastSearch's
+  // both the instant cached-render and its background refetch, the live-watch auto-upgrade retry)
+  // already goes through here, so this one gate covers all of them without touching each call site.
+  if (container === $('#list')) updateBgSplash(games);
   container.innerHTML = games.map((g, i) => {
     if (g.remake) return ''; // server no longer sends remakes; guard is only for legacy lastSearch cache
     const key = prefix + i;
@@ -877,7 +900,61 @@ async function analyze(matchId, btn, i, attempt = 0) {
 }
 
 const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+// v4.27: CommunityDragon's clash position-selector icon set — small (~18px), white-filtered via
+// CSS (see .role-icon) so they read as dim metadata regardless of the icons' own native color,
+// same visual family as .place/.rank-tag. label is the short title tooltip text, matching the
+// fixed ROLES order above one-to-one (never reordered independently of it).
+const ROLE_ICON = {
+  TOP: { url: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-top.png', label: 'TOP' },
+  JUNGLE: { url: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-jungle.png', label: 'JUNGLE' },
+  MIDDLE: { url: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-middle.png', label: 'MID' },
+  BOTTOM: { url: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-bottom.png', label: 'ADC' },
+  UTILITY: { url: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-utility.png', label: 'SUPPORT' },
+};
 const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge}</span>` : '';
+
+// v4.27: full-page background art — the searched player's most-played champion (across their
+// currently-listed games) as a Data Dragon splash, at low opacity behind everything (see
+// body::before in style.css). `function` declarations (not `const`), not arrow fns — restoreLastSearch
+// below is an IIFE that runs synchronously at module load and calls renderRows (which calls
+// updateBgSplash) immediately; a `const` here would still be in its temporal dead zone at that
+// point (same lesson already documented elsewhere in this file re: winProbCompact).
+function mostFrequentChamp(games) {
+  const counts = {};
+  for (const g of games || []) { if (g.champ && !g.remake) counts[g.champ] = (counts[g.champ] || 0) + 1; }
+  let best = null, bestN = 0;
+  for (const champ in counts) { if (counts[champ] > bestN) { best = champ; bestN = counts[champ]; } }
+  return best;
+}
+// Splash URLs use the exact same internal championName id as everything else in this app (Data
+// Dragon's own "MonkeyKing"/"Fiddlesticks"/"Kaisa" style ids — verified against ddragon directly:
+// Wukong_0.jpg 404s, MonkeyKing_0.jpg is the real file; same id space lib/counters.mjs's header
+// documents), so no extra name-mapping is needed beyond what pStats() already normalizes server-side.
+const champSplashUrl = champ => `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${encodeURIComponent(champ)}_0.jpg`;
+// Preloads before committing to the CSS var, so a 404 (an unmapped/renamed champ id, or ddragon
+// hiccup) never flashes a broken background — "if the image 404s, stay plain" — and the plain-bg
+// default never blocks first render (this only ever runs after a search already has data).
+function updateBgSplash(games) {
+  const champ = mostFrequentChamp(games);
+  if (!champ) { document.documentElement.style.setProperty('--splash-img', 'none'); document.body.classList.remove('has-splash'); return; }
+  const url = champSplashUrl(champ);
+  const img = new Image();
+  img.onload = () => { document.documentElement.style.setProperty('--splash-img', `url("${url}")`); document.body.classList.add('has-splash'); };
+  img.onerror = () => { document.documentElement.style.setProperty('--splash-img', 'none'); document.body.classList.remove('has-splash'); };
+  img.src = url;
+}
+// v4.27: delegated (capture — 'error' doesn't bubble), so every current AND future .champ-icon
+// <img> (matchup champ-c cells) gets the same graceful text fallback on a 404 without needing to
+// wire a per-element listener at each of matchupHTML's render call sites.
+document.addEventListener('error', e => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.classList.contains('champ-icon')) return;
+  const span = document.createElement('span');
+  span.className = 'champ' + (img.classList.contains('champ-meta') ? ' champ-meta' : '');
+  span.textContent = img.alt || '';
+  if (img.title) span.title = img.title;
+  img.replaceWith(span);
+}, true);
 
 // Legacy cached entries may predate the duoWith/duoShared fields (or even the duo flag) on
 // player objects, since those were added after duo detection itself. g.duos is always present
@@ -1409,17 +1486,29 @@ function matchupHTML(g, rid) {
       if (p && p.n.replace('#', '-').toLowerCase() === meName) c.push('you');
       return c.length ? ` class="${c.join(' ')}"` : '';
     };
-    const champCell = (p) => {
+    // v4.27: champion square icon replaces the plain-text champ name (matchup columns only — see
+    // the ROLE_ICON/champ-icon header comments; details tables and the live card deliberately keep
+    // text names for now, out of this scope). Full champion name (plus the champ-meta WR/pick/ban
+    // line when lib/champstats.mjs has it) moves entirely into the image's title tooltip — nothing
+    // shown here is lost, just relocated. A 404 (unmapped id, ddragon hiccup) falls back to the
+    // exact same plain-text `.champ` span this used to always render, via the delegated error
+    // listener above — never a broken-image icon.
+    const champCell = (p, side) => {
       if (!p) return '<span class="dim">—</span>';
       const meta = champMetaTitle(p.champ);
-      const cls = meta ? 'champ champ-meta' : 'champ';
-      const title = meta ? ` title="${esc(meta)}"` : '';
-      return `<span class="${cls}"${title}>${esc(p.champ)}</span>`;
+      const title = meta || p.champ;
+      const cls = 'champ-icon team-' + side + (meta ? ' champ-meta' : '');
+      const iconUrl = `https://ddragon.leagueoflegends.com/cdn/${CHAMP_STATS_PATCH}/img/champion/${encodeURIComponent(p.champ)}.png`;
+      return `<img class="${cls}" src="${iconUrl}" alt="${esc(p.champ)}" title="${esc(title)}">`;
     };
     const isBotRow = role === 'BOTTOM' || role === 'UTILITY';
     const bSynergyChip = isBotRow ? botSynergyChipHTML(blueBotSynergy) : '';
     const rSynergyChip = isBotRow ? botSynergyChipHTML(redBotSynergy) : '';
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b)}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip, 'blue')}</td><td class="mid-v">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip, 'red')}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r)}</td></tr>`;
+    // v4.27: role icon (fixed TOP/JUNGLE/MID/ADC/SUPPORT order — ROLES/ROLE_ICON above) sits above
+    // the lane's Favored verdict, in the same center column.
+    const roleIcon = ROLE_ICON[role];
+    const midCell = `<img class="role-icon" src="${roleIcon.url}" alt="${roleIcon.label}" title="${roleIcon.label}">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip, 'blue')}</td><td class="mid-v">${midCell}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip, 'red')}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
