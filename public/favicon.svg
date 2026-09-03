@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 77 113">
+<!-- public/favicon.svg — gold "L" glyph extracted from the official League of Legends 2019
+     wordmark (Wikimedia Commons, https://upload.wikimedia.org/wikipedia/commons/d/d8/League_of_Legends_2019_vector.svg,
+     fill #c79b3b in the source file — same gold used site-wide for the LoL branding). This is one
+     of that file's own standalone letterform paths (its "L" glyph), cropped to its own bounding
+     box, not a redrawn approximation. Site is unofficial fan content — see the UNOFFICIAL pill in
+     the header and the footer disclaimer; this favicon is presentational branding only. -->
+<path fill="#c79b3b" d="m5.2 93.619v-82.6l-5.2-10.8h27.6v83.8h41.4l-5.8 20.4h-63.2z"/>
+</svg>

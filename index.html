@@ -7,6 +7,13 @@
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0e1015">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <!-- Browser-tab favicon — gold "L" glyph cropped from the official LoL wordmark (see
+       public/favicon.svg's own header comment). SVG primary (scalable, tab-bar dark/light aware
+       since it has no baked-in background), PNGs as the fallback for browsers that don't support
+       SVG favicons. PWA icons above (manifest.json, apple-touch-icon) are unrelated and untouched. -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 </head>
 <body>
   <div id="app"></div>
