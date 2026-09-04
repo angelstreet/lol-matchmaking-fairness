@@ -342,6 +342,13 @@ td.you + td.you { border-left:none !important; }
 /* Re-analyze icon button sits right after .mini's View button — it shouldn't also claim the
    margin-left:auto that pushes .mini to the row's right edge (that job stays with View). */
 .icon-btn { min-width:0; padding:6px 10px; margin-left:6px; font-size:14px; flex-shrink:0; }
+/* Re-analyze/Share are now always rendered (not just for g.cached rows) so analyze()'s first-time
+   success path has an element to reveal without a full renderRows re-render — see main.js. Plain
+   [hidden] isn't reliable here: the mobile media query below sets .mini/.icon-btn's own `display`
+   unconditionally, and an author rule of equal specificity always beats the UA [hidden] rule
+   regardless of source order, so it would silently un-hide these on a phone. !important guarantees
+   this wins over both the desktop and mobile display rules until analyze() removes the class. */
+.action-hidden { display:none !important; }
 /* v4.37: share-btn's icon is now an inline SVG (shareIconSvg() in main.js), not an emoji — sized
    to sit flush with the button's own text baseline, inheriting currentColor so hover/disabled
    states already defined for buttons apply to it for free. */

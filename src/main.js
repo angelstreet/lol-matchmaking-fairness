@@ -1132,9 +1132,11 @@ function renderRows(games, container, prefix, rid) {
     // shares the row's key so analyze() can look up the View button (id v${key}) and keep the
     // two in sync. Re-analyzing a live row calls the same putAnalysis PK, so it overwrites this
     // row in place — no duplicate entry, it just becomes a normal final row next render.
-    const reanalyzeBtn = g.cached
-      ? `<button class="mini icon-btn${g.live ? ' wasLive-ready' : ''}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="${g.live ? 'Game finished? Get the final analysis' : 'Re-analyze with the latest scoring (needs a key or a free slot)'}">↻</button>`
-      : '';
+    // v4.39: always rendered (not just when g.cached) so a row's very first successful analyze()
+    // can reveal it in place instead of needing a full renderRows re-render/reload — analyze()
+    // strips .action-hidden from id="r${key}" on success. Cached/reload rows are simply born
+    // without the class, unchanged from before.
+    const reanalyzeBtn = `<button class="mini icon-btn${g.live ? ' wasLive-ready' : ''}${g.cached ? '' : ' action-hidden'}" id="r${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="${g.live ? 'Game finished? Get the final analysis' : 'Re-analyze with the latest scoring (needs a key or a free slot)'}">↻</button>`;
     // v4.35/v4.36/v4.37: Share — only makes sense once a game actually has an analysis to share
     // (same gate as the re-analyze button above). Deliberately NOT given the .mini class: that
     // class is what the delegated listener just below wires up to analyze() — a share click must
@@ -1147,9 +1149,9 @@ function renderRows(games, container, prefix, rid) {
     // has to stay a function declaration rather than a module-level const: renderRows runs
     // SYNCHRONOUSLY at module load (restoreLastSearch's cached-list path), well before a `const`
     // declared further down the file would exist yet.
-    const shareBtn = g.cached
-      ? `<button type="button" class="icon-btn share-btn" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" title="Share this game">${shareIconSvg()}</button>`
-      : '';
+    // v4.39: same always-rendered/action-hidden treatment as reanalyzeBtn above, revealed via
+    // id="s${key}" once a row's first analyze() succeeds.
+    const shareBtn = `<button type="button" class="icon-btn share-btn${g.cached ? '' : ' action-hidden'}" id="s${key}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" title="Share this game">${shareIconSvg()}</button>`;
     return `<div class="gcard" id="g${key}">
       <div class="row">
         <span class="col-res">${resultEl}</span>
@@ -1215,6 +1217,13 @@ async function analyze(matchId, btn, i, attempt = 0) {
       oneEl.title = cleanOneLiner;
     }
     if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
+    // v4.39: a row that started unanalyzed (plain "Analyze") is born with its ↻/Share buttons
+    // present but .action-hidden (see renderRows) — a bare first-time analyze() success is exactly
+    // the moment they become usable, so reveal them here instead of waiting for a future reload/
+    // re-render (loadHistory, a fresh search, etc.) to rebuild the row from g.cached=true. Cheap
+    // no-op for a row that was already cached (classList.remove on a class it never had).
+    document.getElementById('r' + i)?.classList.remove('action-hidden');
+    document.getElementById('s' + i)?.classList.remove('action-hidden');
     card.classList.add('open');
     $('#status').textContent = '';
     // A forced (re-)analysis can change what history shows for this game — most importantly, a
