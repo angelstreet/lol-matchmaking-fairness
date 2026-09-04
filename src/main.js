@@ -29,6 +29,7 @@ document.querySelector('#app').innerHTML = `
     <div class="combo">
       <input id="riotId" name="riot-search" placeholder="Game name #TAG — e.g. xDevilStreet#EUW" required autocomplete="off">
       <button type="button" id="bmStar" title="Bookmark this profile">☆</button>
+      <button type="button" id="copyProfileLink" title="Copy a shareable link to this profile">🔗</button>
       <div id="bmDrop"></div>
     </div>
     <select id="games"><option>3</option><option selected>5</option><option>10</option></select>
@@ -60,7 +61,8 @@ document.querySelector('#app').innerHTML = `
     <div id="hist"></div>
     <div id="histNav" class="dim" style="display:flex;gap:12px;align-items:center"></div>
   </div>
-  <div id="shareMenu" class="share-menu"></div>
+  <div id="shareModal" class="modal-backdrop"></div>
+  <div id="toast" class="toast"></div>
   <footer class="foot"><a href="https://github.com/angelstreet/lol-matchmaking-fairness" target="_blank" rel="noreferrer">⭐ Open source — star it on GitHub</a><span class="dim"> · MIT · not endorsed by Riot Games · </span><a href="/scoring.html" class="algo-link">ⓘ How we score</a></footer>`;
 
 const $ = s => document.querySelector(s);
@@ -502,6 +504,31 @@ $('#riotId').addEventListener('click', openDrop);
 document.addEventListener('click', e => { if (!e.target.closest('.combo')) closeDrop(); });
 $('#riotId').addEventListener('input', updateStar);
 renderBM();
+
+// ---- v4.36: small transient toast (Copy link / Copy image confirmations) ----
+let toastTimer = null;
+function showToast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+async function copyToClipboardOrToast(text, successMsg) {
+  try { await navigator.clipboard.writeText(text); showToast(successMsg); }
+  catch { showToast(text); } // clipboard permission denied/unavailable — surface the text itself so it's still visible/selectable
+}
+// v4.36: profile-level share link — .../?riot-search=Name%23TAG, no match param. Landing on it
+// prefills #riotId (see the plain riot-search handling in consumeLeakedParams, unchanged from
+// before this feature) and the page's own normal load flow (restoreLastSearch -> live fetch,
+// falling back to keylessFallback) takes it from there — no new load-time code needed for this,
+// only the button that produces the link.
+function profileLinkFor(riotId) { return `${location.origin}${location.pathname}?riot-search=${encodeURIComponent(riotId)}`; }
+$('#copyProfileLink').addEventListener('click', () => {
+  const riotId = normRiotId($('#riotId').value);
+  if (!riotId.includes('#')) { showToast('Search a profile first'); return; }
+  copyToClipboardOrToast(profileLinkFor(riotId), 'Link copied to clipboard');
+});
 
 // Keep the lastSearch cache (used to restore the list on page load) in sync with what actually
 // got analyzed — otherwise a refresh right after analyzing a game shows that row back as
@@ -1108,12 +1135,16 @@ function renderRows(games, container, prefix, rid) {
     const reanalyzeBtn = g.cached
       ? `<button class="mini icon-btn${g.live ? ' wasLive-ready' : ''}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="${g.live ? 'Game finished? Get the final analysis' : 'Re-analyze with the latest scoring (needs a key or a free slot)'}">↻</button>`
       : '';
-    // v4.35: Share — only makes sense once a game actually has an analysis to share (same gate as
-    // the re-analyze button above). Deliberately NOT given the .mini class: that class is what the
-    // delegated listener just below wires up to analyze() — a share click must never trigger an
-    // analyze/toggle on the card, so it gets its own class (.share-btn) and its own listener.
+    // v4.35/v4.36: Share — only makes sense once a game actually has an analysis to share (same
+    // gate as the re-analyze button above). Deliberately NOT given the .mini class: that class is
+    // what the delegated listener just below wires up to analyze() — a share click must never
+    // trigger an analyze/toggle on the card, so it gets its own class (.share-btn) and its own
+    // listener. Carries data-key (unlike the other row buttons above, which can find their own row
+    // by id="v${key}"/"g${key}" once clicked) because onShareClick needs to look up the row's View
+    // button and card BEFORE doing anything else, to make sure the game is actually loaded/open
+    // before it gets captured into an image.
     const shareBtn = g.cached
-      ? `<button type="button" class="icon-btn share-btn" data-mid="${esc(g.matchId)}" data-rid="${esc(rid)}" title="Share this game">📤</button>`
+      ? `<button type="button" class="icon-btn share-btn" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" title="Share this game">📤</button>`
       : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
@@ -1131,7 +1162,7 @@ function renderRows(games, container, prefix, rid) {
     </div>`;
   }).join('');
   container.querySelectorAll('.mini').forEach(b => b.addEventListener('click', () => analyze(b.dataset.mid, b, b.dataset.key)));
-  container.querySelectorAll('.share-btn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openShareMenu(b, b.dataset.mid, b.dataset.rid); }));
+  container.querySelectorAll('.share-btn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); onShareClick(b, b.dataset.mid, b.dataset.rid, b.dataset.key); }));
 }
 
 async function analyze(matchId, btn, i, attempt = 0) {
@@ -1222,56 +1253,161 @@ async function analyze(matchId, btn, i, attempt = 0) {
   }
 }
 
-// ---- v4.35: Share — deep-link copy, native share, and a canvas-rendered result-card PNG ----
-// The deep link itself: .../?riot-search=Name%23TAG&match=EUW1_xxx — loaded back keylessly by
-// loadDeepLink above (see consumeLeakedParams for how the params are recognized on the way in).
+// ---- v4.36: Share — real-DOM capture (primary) into a modal, with a hand-drawn canvas as a
+// last-resort fallback only. User feedback on the first cut of this (a fully hand-drawn canvas
+// card) was explicit: "don't reinvent the wheel" — the exported image must be the ACTUAL page
+// layout (header + the real matchup card, verbatim), not a separately-designed graphic that will
+// drift from the app's real look over time. So the primary path below clones the live header +
+// the specific game's live .gcard, strips out anything interactive, inlines every image as a
+// data: URI (so nothing the exported canvas depends on is a live cross-origin fetch — see
+// inlineImages), serializes that into an SVG <foreignObject>, and rasterizes THAT. Only if this
+// whole pipeline throws or produces a suspiciously blank result does captureShareImage fall back
+// to the old hand-drawn renderResultCardFallback further below.
 function shareLinkFor(riotId, matchId) {
   return `${location.origin}${location.pathname}?riot-search=${encodeURIComponent(riotId)}&match=${encodeURIComponent(matchId)}`;
 }
-function closeShareMenu() { const m = $('#shareMenu'); m.classList.remove('open'); m.innerHTML = ''; delete m.dataset.mid; }
-// A single reusable popover (see #shareMenu in the template above) repositioned per click, rather
-// than one per row — keeps renderRows' per-row markup light and there's only ever one open at a
-// time anyway. Clicking the SAME share button again just closes it (closeShareMenu is called
-// unconditionally first, so `already` has to be captured before that).
-function openShareMenu(btn, matchId, riotId) {
-  const menu = $('#shareMenu');
-  const already = menu.classList.contains('open') && menu.dataset.mid === matchId;
-  closeShareMenu();
-  if (already) return;
-  const canNativeShare = typeof navigator.share === 'function';
-  menu.innerHTML = `
-    <button type="button" class="share-item" id="shCopy">🔗 Copy link</button>
-    <button type="button" class="share-item" id="shImg">🖼️ Download image</button>
-    ${canNativeShare ? `<button type="button" class="share-item" id="shNative">📱 Share…</button>` : ''}
-  `;
-  menu.dataset.mid = matchId;
-  const r = btn.getBoundingClientRect();
-  const menuW = 190; // keep in sync with .share-menu's min-width below
-  menu.style.top = `${r.bottom + 6}px`;
-  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menuW - 8, r.right - menuW))}px`;
-  menu.classList.add('open');
-  $('#shCopy').addEventListener('click', () => copyShareLink(riotId, matchId));
-  $('#shImg').addEventListener('click', () => downloadResultCard(riotId, matchId));
-  if (canNativeShare) $('#shNative').addEventListener('click', () => nativeShare(riotId, matchId));
-}
-document.addEventListener('click', e => { if (!e.target.closest('.share-menu') && !e.target.closest('.share-btn')) closeShareMenu(); });
-document.addEventListener('scroll', closeShareMenu, true); // a fixed-position popover would otherwise drift away from the button it points at
 
-async function copyShareLink(riotId, matchId) {
-  const url = shareLinkFor(riotId, matchId);
-  closeShareMenu();
+// A 1x1 transparent GIF — swapped in for any image inlineImages can't fetch (network hiccup,
+// unexpectedly missing CORS headers), so a broken-image box never gets baked into the exported
+// PNG and the layout doesn't shift the way img.remove() would.
+const BLANK_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+async function toDataUri(url) {
+  const r = await fetch(url, { mode: 'cors' });
+  if (!r.ok) throw new Error('fetch failed: ' + r.status);
+  const blob = await r.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+// Every <img> inside `root` (champ icons, role icons, the LoL wordmark) is a cross-origin raster
+// resource — left as a live src, foreignObject content rendered to canvas taints the canvas on
+// export (Chrome flags the whole composited SVG as non-origin-clean the moment ANY embedded
+// raster came from elsewhere, regardless of that resource's own CORS headers). Inlining every one
+// as a base64 data: URI up front means the final rasterize step never touches the network at all,
+// so there's nothing left that CAN taint it.
+async function inlineImages(root) {
+  const imgs = Array.from(root.querySelectorAll('img'));
+  await Promise.all(imgs.map(async img => {
+    const src = img.getAttribute('src');
+    if (!src || src.startsWith('data:')) return;
+    try { img.setAttribute('src', await toDataUri(new URL(src, location.href).href)); }
+    catch { img.setAttribute('src', BLANK_PIXEL); }
+  }));
+}
+// The app's own compiled stylesheet, fetched once and cached — inlined into a <style> tag inside
+// the foreignObject below so the cloned header/card get the EXACT real cascade (colors, badge
+// classes, table layout, spinner keyframes, all of it), not a hand-approximated subset. An
+// isolated SVG "document" loaded via new Image() doesn't inherit the host page's <link
+// rel="stylesheet">, so this has to be inlined as text.
+let appCssTextCache = null;
+async function fetchAppCss() {
+  if (appCssTextCache != null) return appCssTextCache;
+  const link = document.querySelector('link[rel="stylesheet"]');
+  try { appCssTextCache = link ? await (await fetch(link.href)).text() : ''; }
+  catch { appCssTextCache = ''; }
+  return appCssTextCache;
+}
+// Root CSS custom properties (--bg, --mid, etc.), redeclared directly as inline styles on the
+// capture root rather than trusted to the injected stylesheet's own `:root` rule — whether `:root`
+// inside an isolated foreignObject SVG document resolves the way it does in the real page is
+// implementation-dependent; an inline declaration on the actual ancestor element is unambiguous
+// and every var(--x) reference in the inlined stylesheet still resolves via normal inheritance.
+const ROOT_VARS_CSS = '--bg:#0e1015;--card:#181b22;--line:#262b36;--txt:#e8eaf0;--dim:#8a91a3;--ok:#3fb68b;--mid:#e0a63d;--bad:#e05d5d;--blue:#4a90d9;--red:#d97a4a;';
+// Cheap "did this actually render anything" check — samples a block of pixels from the middle of
+// the canvas and bails if every one of them is (near-)identical to the first, which a card this
+// dense with text/table content should never legitimately be. Not foolproof, but good enough to
+// catch the foreignObject pipeline silently producing a blank frame (a known risk of this
+// technique in some browsers) and route to the fallback instead of shipping an empty image.
+function looksBlank(canvas) {
+  const ctx = canvas.getContext('2d');
+  const w = Math.min(canvas.width, 60), h = Math.min(canvas.height, 60);
+  const x = Math.floor((canvas.width - w) / 2), y = Math.floor((canvas.height - h) / 2);
+  const data = ctx.getImageData(x, y, w, h).data;
+  const [r0, g0, b0] = data;
+  for (let i = 4; i < data.length; i += 4) {
+    if (Math.abs(data[i] - r0) > 4 || Math.abs(data[i + 1] - g0) > 4 || Math.abs(data[i + 2] - b0) > 4) return false;
+  }
+  return true;
+}
+// Renders `node` (already fully built, not yet attached) off-screen at a fixed width, inlines its
+// images, measures its natural height, serializes it into an SVG foreignObject, and rasterizes
+// that into a PNG blob. Throws if the pipeline fails outright or looks blank — callers fall back
+// to renderResultCardFallback when this throws.
+async function domToPngBlob(node, width) {
+  node.style.position = 'fixed';
+  node.style.left = '-99999px';
+  node.style.top = '0';
+  node.style.width = width + 'px';
+  node.style.boxSizing = 'border-box';
+  node.style.background = '#0e1015';
+  node.style.color = '#e8eaf0';
+  node.style.font = '15px/1.5 system-ui, sans-serif';
+  node.style.padding = '28px';
+  node.style.cssText += ROOT_VARS_CSS;
+  document.body.appendChild(node);
   try {
-    await navigator.clipboard.writeText(url);
-    $('#status').textContent = 'Link copied.';
-  } catch {
-    // Clipboard permission denied/unavailable — surface the URL itself so it can still be
-    // selected and copied by hand rather than just silently failing.
-    $('#status').textContent = url;
+    await inlineImages(node);
+    // Two rAFs: one for the browser to apply the just-swapped data: URI srcs, one to let layout
+    // actually settle before measuring — a single frame occasionally still read a pre-image height.
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const height = Math.max(1, Math.ceil(node.getBoundingClientRect().height));
+    const cssText = await fetchAppCss();
+    const svgMarkup = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`
+      + `<foreignObject x="0" y="0" width="${width}" height="${height}">`
+      + `<div xmlns="http://www.w3.org/1999/xhtml"><style>${cssText}</style>${node.outerHTML}</div>`
+      + `</foreignObject></svg>`;
+    const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    try {
+      const img = await loadCardImage(svgUrl);
+      if (!img) throw new Error('SVG failed to decode');
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0e1015';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      if (looksBlank(canvas)) throw new Error('Capture looks blank');
+      return await canvasToBlob(canvas);
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
+  } finally {
+    node.remove();
   }
 }
-async function nativeShare(riotId, matchId) {
-  closeShareMenu();
-  try { await navigator.share({ title: 'Losing Queue', text: 'Was this game fair? Check it out:', url: shareLinkFor(riotId, matchId) }); } catch {} // AbortError on user-cancel, etc. — nothing to report either way
+// Assembles the exact content the redesign asked for: the real header (logo/title/UNOFFICIAL
+// pill, with the "How we score" link + account button stripped — those are navigation, not result
+// content), the profile name as a plain text label (not the live search input), and the specific
+// game's live .gcard verbatim (matchup table, rank tags, chips, Favored column, TEAM footer with
+// its win% bar and DRAFT line) with only the row header's action buttons (Hide/↻/📤) removed.
+function buildShareCaptureNode(cardEl, riotId) {
+  const wrap = document.createElement('div');
+
+  const headerClone = document.querySelector('.site-header').cloneNode(true);
+  headerClone.querySelector('.h1-right')?.remove(); // "How we score" link + account button — navigation, not result content
+  wrap.appendChild(headerClone);
+
+  const label = document.createElement('div');
+  label.textContent = riotId;
+  label.style.cssText = 'font-size:20px; font-weight:700; color:#e8eaf0; margin:14px 0 18px;';
+  wrap.appendChild(label);
+
+  const cardClone = cardEl.cloneNode(true);
+  cardClone.classList.add('open'); // defensive — the caller already ensures this on the live element before cloning
+  cardClone.querySelectorAll('.row > button').forEach(b => b.remove()); // Hide/View, ↻ re-analyze, 📤 share
+  wrap.appendChild(cardClone);
+
+  return wrap;
+}
+// Real-DOM capture, primary path — throws (see domToPngBlob) if the pipeline fails outright or
+// produces a blank frame. The caller (onShareClick) is the one that decides what to do about that
+// (fall back to renderResultCardFallback) since it already has matchId/riotId/region in scope.
+function captureShareImage(cardEl, riotId) {
+  return domToPngBlob(buildShareCaptureNode(cardEl, riotId), 1160);
 }
 
 const CARD_W = 1200, CARD_H = 630;
@@ -1317,15 +1453,15 @@ function canvasToBlob(canvas) {
     catch (err) { reject(err); }
   });
 }
-// The marketing asset behind "Download image" — a self-contained 1200x630 PNG (Discord/Twitter
-// link-preview size), drawn with the Canvas API directly (no image/canvas libraries), mirroring
-// the same verdict color/label (verdictCls/verdictLabel), win% bar (see winProbHTML) and duo-
-// evidence phrasing (lib/riot.mjs's fairness(), "N enemy duos") already on screen, so a shared
-// card never contradicts the live page. `withIcon=false` skips the ddragon champion-icon fetch
-// and draw entirely — used as the automatic retry when drawing (or exporting) the icon version
-// taints the canvas (see downloadResultCard below): once nothing but locally-drawn shapes/text has
-// touched the canvas, export can't be blocked a second time.
-async function renderResultCard(e, riotId, withIcon) {
+// v4.36: LAST-RESORT fallback only, used exclusively when captureShareImage's real-DOM capture
+// throws — see the big comment above that function for why hand-drawing isn't the primary path
+// anymore. Kept otherwise unchanged from the original implementation: a self-contained 1200x630
+// PNG drawn with the Canvas API directly, mirroring the same verdict color/label
+// (verdictCls/verdictLabel), win% bar (see winProbHTML) and duo-evidence phrasing (lib/riot.mjs's
+// fairness(), "N enemy duos") the real page shows. `withIcon=false` skips the ddragon champion-
+// icon fetch/draw entirely — used as this function's OWN internal retry if drawing/exporting the
+// icon version taints the canvas a second time (see onShareClick below).
+async function renderResultCardFallback(e, riotId, withIcon) {
   const canvas = document.createElement('canvas');
   canvas.width = CARD_W; canvas.height = CARD_H;
   const ctx = canvas.getContext('2d');
@@ -1438,34 +1574,114 @@ async function renderResultCard(e, riotId, withIcon) {
 
   return canvas;
 }
-async function downloadResultCard(riotId, matchId) {
-  closeShareMenu();
-  $('#status').textContent = 'Generating image…';
+async function renderResultCardFallbackBlob(riotId, matchId, region) {
+  const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(riotId)}&matchId=${encodeURIComponent(matchId)}&region=${region}`);
+  const data = await r.json();
+  if (!r.ok || !data.entry) throw new Error(data.error || 'Game not found');
   try {
+    return await canvasToBlob(await renderResultCardFallback(data.entry, riotId, true));
+  } catch {
+    // Tainted-canvas export failure — the ddragon icon loaded but didn't actually carry a CORS
+    // header permissive enough for export (or some other draw-time hiccup). Retry with nothing
+    // but locally-drawn shapes/text on the canvas, which can't taint it a second time.
+    return await canvasToBlob(await renderResultCardFallback(data.entry, riotId, false));
+  }
+}
+// v4.36: the Share button's click handler. No "Generating image..." page text anywhere — the
+// loading state lives entirely in the button itself (spinner, same pattern analyze() already uses
+// for View/↻), and the result opens in a modal rather than triggering an immediate download.
+async function onShareClick(btn, matchId, riotId, key) {
+  if (btn.disabled) return;
+  const prevHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    const viewBtn = document.getElementById('v' + key);
+    const card = document.getElementById('g' + key);
+    if (!card || !viewBtn) throw new Error('Card not found');
+    // The captured card must actually be loaded+open — a Share click doesn't require a prior View
+    // click. Calling analyze() directly (not simulating a click) when it's not loaded yet is safe:
+    // that's its normal fetch-and-open path, not the loaded-toggle short-circuit, so it can never
+    // accidentally COLLAPSE an already-open card the way a second click/analyze() call would.
+    if (!viewBtn.dataset.loaded) {
+      await analyze(matchId, viewBtn, key);
+    } else if (!card.classList.contains('open')) {
+      card.classList.add('open');
+      viewBtn.textContent = '▴ Hide';
+    }
     const region = CTX.riotId === riotId ? CTX.region : regionFromMatchId(matchId);
-    const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(riotId)}&matchId=${encodeURIComponent(matchId)}&region=${region}`);
-    const data = await r.json();
-    if (!r.ok || !data.entry) throw new Error(data.error || 'Game not found');
     let blob;
     try {
-      blob = await canvasToBlob(await renderResultCard(data.entry, riotId, true));
+      blob = await captureShareImage(card, riotId);
     } catch {
-      // Tainted-canvas export failure — the ddragon icon loaded but didn't actually carry a CORS
-      // header permissive enough for export (or some other draw-time hiccup). Retry with nothing
-      // but locally-drawn shapes/text on the canvas, which can't taint it a second time.
-      blob = await canvasToBlob(await renderResultCard(data.entry, riotId, false));
+      blob = await renderResultCardFallbackBlob(riotId, matchId, region);
     }
+    openShareModal(blob, riotId, matchId);
+  } catch {
+    showToast('Could not generate the image.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = prevHTML;
+  }
+}
+
+let shareModalObjUrl = null;
+function closeShareModal() {
+  $('#shareModal').classList.remove('open');
+  $('#shareModal').innerHTML = '';
+  if (shareModalObjUrl) { URL.revokeObjectURL(shareModalObjUrl); shareModalObjUrl = null; }
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeShareModal(); });
+// Large image preview + Download / native Share (with the actual image file, where supported) /
+// Copy image to clipboard (ClipboardItem, feature-detected — Firefox/older Safari just don't get
+// the button rather than a broken one), plus a small secondary "copy game link instead" for
+// whoever specifically wants the deep link (?riot-search&match=) to this one game rather than the
+// profile-level link the header's 🔗 button copies.
+function openShareModal(blob, riotId, matchId) {
+  closeShareModal();
+  shareModalObjUrl = URL.createObjectURL(blob);
+  const fileName = `losingqueue-${matchId}.png`;
+  let canNativeShareFile = false;
+  try { canNativeShareFile = typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([blob], fileName, { type: 'image/png' })] }); } catch {}
+  const canCopyImage = typeof window.ClipboardItem === 'function' && !!navigator.clipboard?.write;
+  const modal = $('#shareModal');
+  modal.innerHTML = `
+    <div class="modal-card" role="dialog" aria-modal="true" aria-label="Share this game">
+      <div class="modal-header">
+        <span class="modal-title">Share this game</span>
+        <button type="button" class="modal-x" id="shModalClose" aria-label="Close">✕</button>
+      </div>
+      <img id="shModalImg" src="${shareModalObjUrl}" alt="Result card preview">
+      <div class="modal-actions">
+        <button type="button" id="shModalDownload">⬇ Download</button>
+        ${canNativeShareFile ? `<button type="button" id="shModalNative">📱 Share…</button>` : ''}
+        ${canCopyImage ? `<button type="button" id="shModalCopyImg">📋 Copy image</button>` : ''}
+      </div>
+      <div class="modal-secondary"><button type="button" class="linklike" id="shModalGameLink">Copy game link instead</button></div>
+    </div>`;
+  modal.classList.add('open');
+  $('#shModalClose').addEventListener('click', closeShareModal);
+  modal.addEventListener('click', e => { if (e.target === modal) closeShareModal(); });
+  $('#shModalDownload').addEventListener('click', () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `losingqueue-${matchId}.png`;
+    a.href = shareModalObjUrl;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    $('#status').textContent = '';
-  } catch (err) {
-    $('#status').textContent = '❌ Could not generate the image: ' + esc(err.message || 'unknown error');
+  });
+  if (canNativeShareFile) {
+    $('#shModalNative').addEventListener('click', async () => {
+      try { await navigator.share({ files: [new File([blob], fileName, { type: 'image/png' })], title: 'Losing Queue', text: 'Was this game fair? Check it out:' }); } catch {} // AbortError on user-cancel, etc. — nothing to report either way
+    });
   }
+  if (canCopyImage) {
+    $('#shModalCopyImg').addEventListener('click', async () => {
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); showToast('Image copied to clipboard'); }
+      catch { showToast('Could not copy image'); }
+    });
+  }
+  $('#shModalGameLink').addEventListener('click', () => copyToClipboardOrToast(shareLinkFor(riotId, matchId), 'Game link copied to clipboard'));
 }
 
 const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];

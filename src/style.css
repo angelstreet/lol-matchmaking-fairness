@@ -333,12 +333,28 @@ td.you + td.you { border-left:none !important; }
 /* Re-analyze icon button sits right after .mini's View button — it shouldn't also claim the
    margin-left:auto that pushes .mini to the row's right edge (that job stays with View). */
 .icon-btn { min-width:0; padding:6px 10px; margin-left:6px; font-size:14px; flex-shrink:0; }
-/* v4.35: Share popover (#shareMenu in main.js) — one reusable element, repositioned per click via
-   inline top/left (fixed positioning, so it isn't clipped by any row's own overflow). */
-.share-menu { position:fixed; z-index:50; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px; display:none; flex-direction:column; min-width:190px; box-shadow:0 8px 24px rgba(0,0,0,.45); }
-.share-menu.open { display:flex; }
-.share-item { background:none; border:none; color:var(--txt); text-align:left; padding:9px 10px; border-radius:6px; cursor:pointer; font-size:13px; font-family:inherit; }
-.share-item:hover { background:var(--line); }
+/* v4.36: profile-level "copy link" button, sits right next to the ★ bookmark star in .combo. */
+#copyProfileLink { flex-shrink:0; background:var(--card); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:0 12px; font-size:15px; }
+#copyProfileLink:hover { border-color:var(--dim); }
+/* v4.36: transient toast (Copy link / Copy image confirmations) — fixed bottom-center, fades in
+   on .show, pointer-events:none throughout so it never blocks a click underneath it. */
+.toast { position:fixed; left:50%; bottom:28px; transform:translate(-50%, 10px); background:var(--card); border:1px solid var(--line); color:var(--txt); padding:10px 18px; border-radius:8px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; z-index:80; max-width:min(90vw, 480px); overflow-wrap:anywhere; text-align:center; }
+.toast.show { opacity:1; transform:translate(-50%, 0); }
+/* v4.36: Share modal (#shareModal in main.js) — large image preview + Download/Share/Copy image
+   actions, replacing the old popover menu. Backdrop click or the ✕ dismisses it. */
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:90; padding:20px; }
+.modal-backdrop.open { display:flex; }
+.modal-card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; width:640px; max-width:100%; max-height:90vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+.modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.modal-title { font-weight:800; color:var(--mid); font-size:15px; }
+.modal-x { background:none; border:none; color:var(--dim); font-size:18px; line-height:1; cursor:pointer; padding:4px 6px; border-radius:6px; }
+.modal-x:hover { background:var(--line); color:var(--txt); }
+.modal-card img { width:100%; display:block; border-radius:10px; border:1px solid var(--line); background:var(--bg); }
+.modal-actions { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
+.modal-actions button { flex:1 1 auto; min-width:120px; }
+.modal-secondary { margin-top:12px; text-align:center; }
+.linklike { background:none; border:none; color:var(--dim); text-decoration:underline; cursor:pointer; font-size:12px; font-family:inherit; padding:4px; }
+.linklike:hover { color:var(--txt); }
 .note a { color:var(--ok); }
 #keyHelp { margin-top:8px; line-height:1.7; }
 h4 { margin:10px 0 2px; }
