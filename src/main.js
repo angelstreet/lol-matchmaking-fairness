@@ -1257,70 +1257,98 @@ async function analyze(matchId, btn, i, attempt = 0) {
 // last-resort fallback only. User feedback on the first cut of this (a fully hand-drawn canvas
 // card) was explicit: "don't reinvent the wheel" — the exported image must be the ACTUAL page
 // layout (header + the real matchup card, verbatim), not a separately-designed graphic that will
-// drift from the app's real look over time. So the primary path below clones the live header +
-// the specific game's live .gcard, strips out anything interactive, inlines every image as a
-// data: URI (so nothing the exported canvas depends on is a live cross-origin fetch — see
-// inlineImages), serializes that into an SVG <foreignObject>, and rasterizes THAT. Only if this
-// whole pipeline throws or produces a suspiciously blank result does captureShareImage fall back
-// to the old hand-drawn renderResultCardFallback further below.
+// drift from the app's real look over time.
+//
+// The first cut of this did that via SVG <foreignObject> (clone the live elements, inline every
+// image as a data: URI, serialize into an SVG, rasterize). That turns out to be a dead end:
+// tested against this exact card, ANY image drawn from within a foreignObject taints the export
+// canvas — confirmed even for a single inlined 1x1 data: URI pixel, and even for foreignObject
+// content with ZERO images at all (pure text). This isn't a CORS or data-URI problem to work
+// around; it's permanent, specified browser behavior — an SVG image containing <foreignObject>
+// is always treated as non-origin-clean, full stop, so toBlob/toDataURL on a canvas it was drawn
+// into always throws. No amount of inlining or crossOrigin handling changes that.
+//
+// So the primary path below still reads the REAL live DOM (no hand-picked/approximated values —
+// this stays true to "don't reinvent"), just without ever routing it through foreignObject:
+// collectPaintOps walks the assembled clone (attached off-screen so the browser lays it out with
+// the actual stylesheet cascade) and turns it into a flat list of paint operations — background
+// fills, borders, text runs (positioned via Range.getClientRects(), which hands back the exact
+// line boxes the browser's own layout produced, so wrapped text matches without reimplementing
+// line-breaking), and images — read live via getComputedStyle/getBoundingClientRect. Those get
+// replayed onto a plain 2D canvas: ordinary drawImage from a crossOrigin='anonymous')-loaded image
+// (ddragon/communitydragon/wikimedia all serve permissive CORS, already relied on by the
+// hand-drawn fallback further below) does NOT taint a canvas — only the foreignObject path did.
 function shareLinkFor(riotId, matchId) {
   return `${location.origin}${location.pathname}?riot-search=${encodeURIComponent(riotId)}&match=${encodeURIComponent(matchId)}`;
 }
 
-// A 1x1 transparent GIF — swapped in for any image inlineImages can't fetch (network hiccup,
-// unexpectedly missing CORS headers), so a broken-image box never gets baked into the exported
-// PNG and the layout doesn't shift the way img.remove() would.
-const BLANK_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-async function toDataUri(url) {
-  const r = await fetch(url, { mode: 'cors' });
-  if (!r.ok) throw new Error('fetch failed: ' + r.status);
-  const blob = await r.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
+function isTransparent(color) {
+  return !color || color === 'transparent' || /^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/.test(color);
 }
-// Every <img> inside `root` (champ icons, role icons, the LoL wordmark) is a cross-origin raster
-// resource — left as a live src, foreignObject content rendered to canvas taints the canvas on
-// export (Chrome flags the whole composited SVG as non-origin-clean the moment ANY embedded
-// raster came from elsewhere, regardless of that resource's own CORS headers). Inlining every one
-// as a base64 data: URI up front means the final rasterize step never touches the network at all,
-// so there's nothing left that CAN taint it.
-async function inlineImages(root) {
-  const imgs = Array.from(root.querySelectorAll('img'));
-  await Promise.all(imgs.map(async img => {
-    const src = img.getAttribute('src');
-    if (!src || src.startsWith('data:')) return;
-    try { img.setAttribute('src', await toDataUri(new URL(src, location.href).href)); }
-    catch { img.setAttribute('src', BLANK_PIXEL); }
-  }));
+// Walks `root` (already attached to the page, so computed styles/rects reflect the real cascade)
+// and returns a flat, ordered (parent-before-child, matching normal paint order) list of ops:
+// {type:'rect'|'stroke'|'img'|'text', ...}. Each op carries an optional `clip` rect — set whenever
+// an ancestor has overflow:hidden (e.g. a truncating one-liner or champ-name column), since
+// Range.getClientRects() reports a text node's full laid-out extent even when a CSS ellipsis is
+// visually clipping it, and painting that full extent unclipped would bleed past where the real
+// page cuts it off.
+function collectPaintOps(root) {
+  const originRect = root.getBoundingClientRect();
+  const ops = [];
+  function walk(el, clip) {
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const x = rect.left - originRect.left, y = rect.top - originRect.top;
+    const radius = parseFloat(cs.borderTopLeftRadius) || 0;
+    if (!isTransparent(cs.backgroundColor)) ops.push({ type: 'rect', x, y, w: rect.width, h: rect.height, radius, fill: cs.backgroundColor, clip });
+    const bw = parseFloat(cs.borderTopWidth) || 0;
+    if (bw > 0 && cs.borderTopStyle !== 'none' && !isTransparent(cs.borderTopColor)) {
+      ops.push({ type: 'stroke', x: x + bw / 2, y: y + bw / 2, w: Math.max(0, rect.width - bw), h: Math.max(0, rect.height - bw), radius, color: cs.borderTopColor, lineWidth: bw, clip });
+    }
+    if (el.tagName === 'IMG') {
+      ops.push({ type: 'img', x, y, w: rect.width, h: rect.height, radius, src: el.currentSrc || el.src, clip });
+      return; // images never have paintable children
+    }
+    const childClip = (cs.overflow === 'hidden' || cs.overflowX === 'hidden') ? { x, y, w: rect.width, h: rect.height } : clip;
+    const font = `${cs.fontStyle !== 'normal' ? cs.fontStyle + ' ' : ''}${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    for (const child of el.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+        const range = document.createRange();
+        range.selectNodeContents(child);
+        const rects = Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+        if (rects.length === 1) {
+          const r = rects[0];
+          ops.push({ type: 'text', x: r.left - originRect.left, y: r.top - originRect.top, w: r.width, h: r.height, text: child.textContent.trim(), font, color: cs.color, clip: childClip });
+        } else if (rects.length > 1) {
+          // Genuine multi-line wrap — the Range API doesn't hand back which words landed on which
+          // line, so split proportionally by each line's own width share. Rare in this app's short
+          // labels (mainly the one-liner), and only ever cosmetically approximate when it happens.
+          const words = child.textContent.trim().split(/\s+/);
+          const total = rects.reduce((s, r) => s + r.width, 0) || 1;
+          let wi = 0;
+          rects.forEach((r, idx) => {
+            const remaining = words.length - wi;
+            const share = idx === rects.length - 1 ? remaining : Math.max(1, Math.min(remaining, Math.round((r.width / total) * words.length)));
+            const slice = words.slice(wi, wi + share).join(' ');
+            wi += share;
+            ops.push({ type: 'text', x: r.left - originRect.left, y: r.top - originRect.top, w: r.width, h: r.height, text: slice, font, color: cs.color, clip: childClip });
+          });
+        }
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        walk(child, childClip);
+      }
+    }
+  }
+  walk(root, null);
+  return ops;
 }
-// The app's own compiled stylesheet, fetched once and cached — inlined into a <style> tag inside
-// the foreignObject below so the cloned header/card get the EXACT real cascade (colors, badge
-// classes, table layout, spinner keyframes, all of it), not a hand-approximated subset. An
-// isolated SVG "document" loaded via new Image() doesn't inherit the host page's <link
-// rel="stylesheet">, so this has to be inlined as text.
-let appCssTextCache = null;
-async function fetchAppCss() {
-  if (appCssTextCache != null) return appCssTextCache;
-  const link = document.querySelector('link[rel="stylesheet"]');
-  try { appCssTextCache = link ? await (await fetch(link.href)).text() : ''; }
-  catch { appCssTextCache = ''; }
-  return appCssTextCache;
-}
-// Root CSS custom properties (--bg, --mid, etc.), redeclared directly as inline styles on the
-// capture root rather than trusted to the injected stylesheet's own `:root` rule — whether `:root`
-// inside an isolated foreignObject SVG document resolves the way it does in the real page is
-// implementation-dependent; an inline declaration on the actual ancestor element is unambiguous
-// and every var(--x) reference in the inlined stylesheet still resolves via normal inheritance.
-const ROOT_VARS_CSS = '--bg:#0e1015;--card:#181b22;--line:#262b36;--txt:#e8eaf0;--dim:#8a91a3;--ok:#3fb68b;--mid:#e0a63d;--bad:#e05d5d;--blue:#4a90d9;--red:#d97a4a;';
 // Cheap "did this actually render anything" check — samples a block of pixels from the middle of
 // the canvas and bails if every one of them is (near-)identical to the first, which a card this
-// dense with text/table content should never legitimately be. Not foolproof, but good enough to
-// catch the foreignObject pipeline silently producing a blank frame (a known risk of this
-// technique in some browsers) and route to the fallback instead of shipping an empty image.
+// dense with text/table content should never legitimately be. Not foolproof, but a last safety
+// net that routes to the fallback instead of shipping an empty image if collectPaintOps somehow
+// found nothing paintable.
 function looksBlank(canvas) {
   const ctx = canvas.getContext('2d');
   const w = Math.min(canvas.width, 60), h = Math.min(canvas.height, 60);
@@ -1332,10 +1360,49 @@ function looksBlank(canvas) {
   }
   return true;
 }
-// Renders `node` (already fully built, not yet attached) off-screen at a fixed width, inlines its
-// images, measures its natural height, serializes it into an SVG foreignObject, and rasterizes
-// that into a PNG blob. Throws if the pipeline fails outright or looks blank — callers fall back
-// to renderResultCardFallback when this throws.
+async function paintOpsToCanvas(ops, width, height, bgColor) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, width, height);
+  // Preload every distinct image up front (parallel) — loadCardImage sets crossOrigin='anonymous'
+  // and resolves null (not a throw) on failure, so one bad icon can't derail the whole capture.
+  const imgCache = new Map();
+  await Promise.all([...new Set(ops.filter(o => o.type === 'img').map(o => o.src))].map(async src => {
+    imgCache.set(src, await loadCardImage(src));
+  }));
+  for (const op of ops) {
+    ctx.save();
+    if (op.clip) { ctx.beginPath(); ctx.rect(op.clip.x, op.clip.y, op.clip.w, op.clip.h); ctx.clip(); }
+    const r = Math.min(op.radius || 0, (op.w || 0) / 2, (op.h || 0) / 2);
+    if (op.type === 'rect') {
+      ctx.fillStyle = op.fill;
+      if (r > 0) { canvasRoundRect(ctx, op.x, op.y, op.w, op.h, r); ctx.fill(); } else ctx.fillRect(op.x, op.y, op.w, op.h);
+    } else if (op.type === 'stroke' && op.w > 0 && op.h > 0) {
+      ctx.strokeStyle = op.color;
+      ctx.lineWidth = op.lineWidth;
+      if (r > 0) { canvasRoundRect(ctx, op.x, op.y, op.w, op.h, r); ctx.stroke(); } else ctx.strokeRect(op.x, op.y, op.w, op.h);
+    } else if (op.type === 'img') {
+      const img = imgCache.get(op.src);
+      if (img) {
+        if (r > 0) { canvasRoundRect(ctx, op.x, op.y, op.w, op.h, r); ctx.clip(); }
+        ctx.drawImage(img, op.x, op.y, op.w, op.h);
+      }
+    } else if (op.type === 'text') {
+      ctx.font = op.font;
+      ctx.fillStyle = op.color;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(op.text, op.x, op.y + op.h / 2);
+    }
+    ctx.restore();
+  }
+  return canvas;
+}
+// Attaches `node` off-screen (real layout/cascade, just not in the viewport), walks it into paint
+// ops, and rasterizes those onto a canvas. Throws if the result looks blank — callers fall back to
+// renderResultCardFallback when this throws.
 async function domToPngBlob(node, width) {
   node.style.position = 'fixed';
   node.style.left = '-99999px';
@@ -1346,42 +1413,13 @@ async function domToPngBlob(node, width) {
   node.style.color = '#e8eaf0';
   node.style.font = '15px/1.5 system-ui, sans-serif';
   node.style.padding = '28px';
-  node.style.cssText += ROOT_VARS_CSS;
   document.body.appendChild(node);
   try {
-    await inlineImages(node);
-    // getBoundingClientRect forces an immediate synchronous layout — it does NOT need a painted
-    // frame to be accurate, and every image here has an explicit CSS width/height (.champ-icon,
-    // .role-icon, .lol-logo) so the measured height doesn't even depend on image decode completing.
-    // v4.36 shipped this as a double requestAnimationFrame instead, reasoning "let layout settle
-    // before measuring" — that's a real hang risk: rAF callbacks are suspended entirely while the
-    // tab is hidden/backgrounded (confirmed in testing — Share hung forever with the pane not
-    // foregrounded), and a user backgrounding the tab right after clicking Share is completely
-    // plausible. A microtask tick is all that's actually needed after the synchronous
-    // setAttribute('src', ...) calls above.
-    await Promise.resolve();
     const height = Math.max(1, Math.ceil(node.getBoundingClientRect().height));
-    const cssText = await fetchAppCss();
-    const svgMarkup = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`
-      + `<foreignObject x="0" y="0" width="${width}" height="${height}">`
-      + `<div xmlns="http://www.w3.org/1999/xhtml"><style>${cssText}</style>${node.outerHTML}</div>`
-      + `</foreignObject></svg>`;
-    const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    try {
-      const img = await loadCardImage(svgUrl);
-      if (!img) throw new Error('SVG failed to decode');
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#0e1015';
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      if (looksBlank(canvas)) throw new Error('Capture looks blank');
-      return await canvasToBlob(canvas);
-    } finally {
-      URL.revokeObjectURL(svgUrl);
-    }
+    const ops = collectPaintOps(node);
+    const canvas = await paintOpsToCanvas(ops, width, height, '#0e1015');
+    if (looksBlank(canvas)) throw new Error('Capture looks blank');
+    return await canvasToBlob(canvas);
   } finally {
     node.remove();
   }
