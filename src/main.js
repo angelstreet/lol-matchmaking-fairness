@@ -1135,16 +1135,20 @@ function renderRows(games, container, prefix, rid) {
     const reanalyzeBtn = g.cached
       ? `<button class="mini icon-btn${g.live ? ' wasLive-ready' : ''}" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" data-force="1" title="${g.live ? 'Game finished? Get the final analysis' : 'Re-analyze with the latest scoring (needs a key or a free slot)'}">↻</button>`
       : '';
-    // v4.35/v4.36: Share — only makes sense once a game actually has an analysis to share (same
-    // gate as the re-analyze button above). Deliberately NOT given the .mini class: that class is
-    // what the delegated listener just below wires up to analyze() — a share click must never
-    // trigger an analyze/toggle on the card, so it gets its own class (.share-btn) and its own
-    // listener. Carries data-key (unlike the other row buttons above, which can find their own row
-    // by id="v${key}"/"g${key}" once clicked) because onShareClick needs to look up the row's View
-    // button and card BEFORE doing anything else, to make sure the game is actually loaded/open
-    // before it gets captured into an image.
+    // v4.35/v4.36/v4.37: Share — only makes sense once a game actually has an analysis to share
+    // (same gate as the re-analyze button above). Deliberately NOT given the .mini class: that
+    // class is what the delegated listener just below wires up to analyze() — a share click must
+    // never trigger an analyze/toggle on the card, so it gets its own class (.share-btn) and its
+    // own listener. Carries data-key (unlike the other row buttons above, which can find their own
+    // row by id="v${key}"/"g${key}" once clicked) because onShareClick needs to look up the row's
+    // View button and card BEFORE doing anything else, to make sure the game is actually
+    // loaded/open before it gets captured into an image. Icon is shareIconSvg() (a `function`, not
+    // an emoji) — see its own comment further down for why a plain emoji got dropped, and why this
+    // has to stay a function declaration rather than a module-level const: renderRows runs
+    // SYNCHRONOUSLY at module load (restoreLastSearch's cached-list path), well before a `const`
+    // declared further down the file would exist yet.
     const shareBtn = g.cached
-      ? `<button type="button" class="icon-btn share-btn" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" title="Share this game">📤</button>`
+      ? `<button type="button" class="icon-btn share-btn" data-mid="${esc(g.matchId)}" data-key="${key}" data-rid="${esc(rid)}" title="Share this game">${shareIconSvg()}</button>`
       : '';
     return `<div class="gcard" id="g${key}">
       <div class="row">
@@ -1281,6 +1285,13 @@ async function analyze(matchId, btn, i, attempt = 0) {
 function shareLinkFor(riotId, matchId) {
   return `${location.origin}${location.pathname}?riot-search=${encodeURIComponent(riotId)}&match=${encodeURIComponent(matchId)}`;
 }
+// v4.37: user feedback — the 📤 emoji read as out of place next to the app's existing icon
+// language (↻ re-analyze: small, monochrome, symbolic). Same "share-2" node-and-lines glyph used
+// in the modal's own Share button — inline SVG, currentColor stroke, so it inherits whatever color
+// the surrounding button/hover state already applies rather than carrying its own fixed emoji color.
+function shareIconSvg() {
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>';
+}
 
 function isTransparent(color) {
   return !color || color === 'transparent' || /^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/.test(color);
@@ -1360,10 +1371,19 @@ function looksBlank(canvas) {
   }
   return true;
 }
-async function paintOpsToCanvas(ops, width, height, bgColor) {
+// v4.37: user feedback — the modal's image read blurry/soft. `scale` supersamples the OUTPUT: the
+// canvas backing store is `scale`x the logical width/height, then a single ctx.scale(scale,scale)
+// up front means every op below still draws in the SAME logical (CSS px) coordinates it always
+// did — the transform maps rects/strokes/text/images to the higher-res backing store uniformly
+// (this includes text: a "16px" font drawn under a 2x transform renders at a genuinely sharper
+// 32 device-px glyph size, not a stretched-up blur), so nothing about collectPaintOps or its op
+// values needed to change, only this one call site.
+async function paintOpsToCanvas(ops, width, height, bgColor, scale = 2) {
   const canvas = document.createElement('canvas');
-  canvas.width = width; canvas.height = height;
+  canvas.width = width * scale; canvas.height = height * scale;
   const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.scale(scale, scale);
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, width, height);
   // Preload every distinct image up front (parallel) — loadCardImage sets crossOrigin='anonymous'
@@ -1677,18 +1697,30 @@ function closeShareModal() {
   if (shareModalObjUrl) { URL.revokeObjectURL(shareModalObjUrl); shareModalObjUrl = null; }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeShareModal(); });
-// Large image preview + Download / native Share (with the actual image file, where supported) /
-// Copy image to clipboard (ClipboardItem, feature-detected — Firefox/older Safari just don't get
-// the button rather than a broken one), plus a small secondary "copy game link instead" for
-// whoever specifically wants the deep link (?riot-search&match=) to this one game rather than the
-// profile-level link the header's 🔗 button copies.
+// v4.37: user feedback — cut down to exactly two actions, Download and Share. "Share" is honest
+// about a real platform constraint: navigator.share with an actual file attached only exists on
+// browsers that support the Web Share API's file form (mostly mobile) — feature-detected via
+// canShare({files:[...]}), not just navigator.share's mere presence (desktop Chrome/Edge have
+// navigator.share for URLs/text but reject file shares). Where that's not available, there is no
+// way to hand a locally-generated image to WhatsApp/Reddit/X/Facebook's web share-intent URLs —
+// those only accept a URL + text, never a blob — so instead of faking an image attachment, Share
+// reveals a small row of platform icons that open each site's real share-intent with the game's
+// deep link + a one-line prompt. That's a genuinely different (lesser) capability than the mobile
+// case, and the UI says so honestly rather than pretending the image comes along.
+const SHARE_TEXT = 'Was this lobby fair? — Losing Queue';
+const SHARE_PLATFORMS = [
+  { id: 'whatsapp', label: 'WhatsApp', color: '#25D366', url: (u, t) => `https://wa.me/?text=${encodeURIComponent(t + ' ' + u)}` },
+  { id: 'reddit', label: 'Reddit', color: '#FF4500', url: (u, t) => `https://www.reddit.com/submit?url=${encodeURIComponent(u)}&title=${encodeURIComponent(t)}` },
+  { id: 'x', label: 'X', color: '#000000', url: (u, t) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}` },
+  { id: 'facebook', label: 'Facebook', color: '#1877F2', url: (u, t) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}&quote=${encodeURIComponent(t)}` },
+];
 function openShareModal(blob, riotId, matchId) {
   closeShareModal();
   shareModalObjUrl = URL.createObjectURL(blob);
   const fileName = `losingqueue-${matchId}.png`;
+  const gameUrl = shareLinkFor(riotId, matchId);
   let canNativeShareFile = false;
   try { canNativeShareFile = typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([blob], fileName, { type: 'image/png' })] }); } catch {}
-  const canCopyImage = typeof window.ClipboardItem === 'function' && !!navigator.clipboard?.write;
   const modal = $('#shareModal');
   modal.innerHTML = `
     <div class="modal-card" role="dialog" aria-modal="true" aria-label="Share this game">
@@ -1699,10 +1731,11 @@ function openShareModal(blob, riotId, matchId) {
       <img id="shModalImg" src="${shareModalObjUrl}" alt="Result card preview">
       <div class="modal-actions">
         <button type="button" id="shModalDownload">⬇ Download</button>
-        ${canNativeShareFile ? `<button type="button" id="shModalNative">📱 Share…</button>` : ''}
-        ${canCopyImage ? `<button type="button" id="shModalCopyImg">📋 Copy image</button>` : ''}
+        <button type="button" id="shModalShare">${shareIconSvg()} Share</button>
       </div>
-      <div class="modal-secondary"><button type="button" class="linklike" id="shModalGameLink">Copy game link instead</button></div>
+      <div class="share-platforms" id="shModalPlatforms" hidden>
+        ${SHARE_PLATFORMS.map(p => `<button type="button" class="platform-btn" data-platform="${p.id}" style="--pcolor:${p.color}" title="Share on ${p.label}" aria-label="Share on ${p.label}">${p.label[0]}</button>`).join('')}
+      </div>
     </div>`;
   modal.classList.add('open');
   $('#shModalClose').addEventListener('click', closeShareModal);
@@ -1715,18 +1748,19 @@ function openShareModal(blob, riotId, matchId) {
     a.click();
     a.remove();
   });
-  if (canNativeShareFile) {
-    $('#shModalNative').addEventListener('click', async () => {
-      try { await navigator.share({ files: [new File([blob], fileName, { type: 'image/png' })], title: 'Losing Queue', text: 'Was this game fair? Check it out:' }); } catch {} // AbortError on user-cancel, etc. — nothing to report either way
-    });
-  }
-  if (canCopyImage) {
-    $('#shModalCopyImg').addEventListener('click', async () => {
-      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); showToast('Image copied to clipboard'); }
-      catch { showToast('Could not copy image'); }
-    });
-  }
-  $('#shModalGameLink').addEventListener('click', () => copyToClipboardOrToast(shareLinkFor(riotId, matchId), 'Game link copied to clipboard'));
+  $('#shModalShare').addEventListener('click', async () => {
+    if (canNativeShareFile) {
+      try { await navigator.share({ files: [new File([blob], fileName, { type: 'image/png' })], title: 'Losing Queue', text: SHARE_TEXT }); } catch {} // AbortError on user-cancel, etc. — nothing to report either way
+      return;
+    }
+    // No file-share support (most desktop browsers) — reveal the platform row instead of a fake attach.
+    $('#shModalPlatforms').hidden = !$('#shModalPlatforms').hidden;
+  });
+  $('#shModalPlatforms').addEventListener('click', e => {
+    const btn = e.target.closest('.platform-btn'); if (!btn) return;
+    const platform = SHARE_PLATFORMS.find(p => p.id === btn.dataset.platform);
+    if (platform) window.open(platform.url(gameUrl, SHARE_TEXT), '_blank', 'noopener,noreferrer');
+  });
 }
 
 const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];

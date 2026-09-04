@@ -66,7 +66,10 @@ h1 span { color:var(--mid); }
 form { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 input, select { background:var(--card); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:10px 12px; font-size:15px; }
 .combo { position:relative; flex:1; min-width:220px; display:flex; }
-input#riotId { flex:1; min-width:200px; width:100%; padding-right:40px; }
+/* v4.36/v4.37: room for TWO overlay icon buttons on the input's right edge now (★ bookmark +
+   🔗 profile-link copy — see #bmStar/#copyProfileLink below), not just the one — widened from 40px
+   so the input's own text never sits under either of them. */
+input#riotId { flex:1; min-width:200px; width:100%; padding-right:64px; }
 .keywrap { position:relative; display:inline-flex; }
 /* type="text" (not "password") so Chrome's password manager doesn't treat this as a login field
    and offer to save/generate a password for it — Chrome ignores autocomplete/data-*-ignore hints
@@ -167,6 +170,12 @@ td.you + td.you { border-left:none !important; }
 .matchup td { white-space:normal; }
 #bmStar { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:#f2c34c; font-size:17px; padding:2px 4px; line-height:1; }
 #bmStar.starred { background:none; }
+/* v4.37: sits in its OWN slot to the star's left (not stacked on top of it — that was the bug
+   report) inside the same absolute-overlay cluster on the input's right edge, same technique/
+   sizing family as #bmStar here and #clearKey in .keywrap below. Neutral/dim like #clearKey rather
+   than the star's own gold — this isn't a toggled "favorited" state, just a utility action. */
+#copyProfileLink { position:absolute; right:30px; top:50%; transform:translateY(-50%); background:none; border:0; color:var(--dim); font-size:14px; padding:2px 4px; line-height:1; cursor:pointer; }
+#copyProfileLink:hover { color:var(--txt); }
 #bmDrop { display:none; position:absolute; top:100%; left:0; right:0; background:var(--card); border:1px solid var(--line); border-radius:0 0 10px 10px; z-index:20; max-height:240px; overflow-y:auto; }
 #bmDrop.open { display:block; }
 .bmItem { padding:8px 12px; cursor:pointer; }
@@ -333,28 +342,35 @@ td.you + td.you { border-left:none !important; }
 /* Re-analyze icon button sits right after .mini's View button — it shouldn't also claim the
    margin-left:auto that pushes .mini to the row's right edge (that job stays with View). */
 .icon-btn { min-width:0; padding:6px 10px; margin-left:6px; font-size:14px; flex-shrink:0; }
-/* v4.36: profile-level "copy link" button, sits right next to the ★ bookmark star in .combo. */
-#copyProfileLink { flex-shrink:0; background:var(--card); border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:0 12px; font-size:15px; }
-#copyProfileLink:hover { border-color:var(--dim); }
+/* v4.37: share-btn's icon is now an inline SVG (shareIconSvg() in main.js), not an emoji — sized
+   to sit flush with the button's own text baseline, inheriting currentColor so hover/disabled
+   states already defined for buttons apply to it for free. */
+.share-btn svg, #shModalShare svg { vertical-align:-2px; margin-right: 2px; }
 /* v4.36: transient toast (Copy link / Copy image confirmations) — fixed bottom-center, fades in
    on .show, pointer-events:none throughout so it never blocks a click underneath it. */
 .toast { position:fixed; left:50%; bottom:28px; transform:translate(-50%, 10px); background:var(--card); border:1px solid var(--line); color:var(--txt); padding:10px 18px; border-radius:8px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; z-index:80; max-width:min(90vw, 480px); overflow-wrap:anywhere; text-align:center; }
 .toast.show { opacity:1; transform:translate(-50%, 0); }
-/* v4.36: Share modal (#shareModal in main.js) — large image preview + Download/Share/Copy image
-   actions, replacing the old popover menu. Backdrop click or the ✕ dismisses it. */
+/* v4.36/v4.37: Share modal (#shareModal in main.js) — large image preview + Download/Share
+   actions. Backdrop click or the ✕ dismisses it. v4.37: enlarged (was a fixed 640px) and the image
+   now sizes itself down from its own (supersampled, see paintOpsToCanvas) natural resolution
+   instead of being forced to the card's full width — object-fit:contain reads as crisp at this
+   size instead of the earlier soft/blurry small render. */
 .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:90; padding:20px; }
 .modal-backdrop.open { display:flex; }
-.modal-card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; width:640px; max-width:100%; max-height:90vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+.modal-card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; width:min(1000px, 92vw); max-width:100%; max-height:92vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5); }
 .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 .modal-title { font-weight:800; color:var(--mid); font-size:15px; }
 .modal-x { background:none; border:none; color:var(--dim); font-size:18px; line-height:1; cursor:pointer; padding:4px 6px; border-radius:6px; }
 .modal-x:hover { background:var(--line); color:var(--txt); }
-.modal-card img { width:100%; display:block; border-radius:10px; border:1px solid var(--line); background:var(--bg); }
+.modal-card img { display:block; margin:0 auto; width:auto; height:auto; max-width:100%; max-height:75vh; object-fit:contain; border-radius:10px; border:1px solid var(--line); background:var(--bg); }
 .modal-actions { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
 .modal-actions button { flex:1 1 auto; min-width:120px; }
-.modal-secondary { margin-top:12px; text-align:center; }
-.linklike { background:none; border:none; color:var(--dim); text-decoration:underline; cursor:pointer; font-size:12px; font-family:inherit; padding:4px; }
-.linklike:hover { color:var(--txt); }
+/* v4.37: revealed under the Share button on platforms without Web Share file support (see
+   openShareModal) — small brand-colored circular monograms rather than the app's own neutral icon
+   language, since these ARE third-party brand marks, not app chrome. */
+.share-platforms { display:flex; gap:10px; justify-content:center; margin-top:14px; }
+.platform-btn { width:36px; height:36px; border-radius:50%; border:0; background:var(--pcolor); color:#fff; font-weight:800; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+.platform-btn:hover { filter:brightness(1.15); }
 .note a { color:var(--ok); }
 #keyHelp { margin-top:8px; line-height:1.7; }
 h4 { margin:10px 0 2px; }
