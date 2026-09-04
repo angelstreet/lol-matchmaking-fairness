@@ -1225,6 +1225,10 @@ async function analyze(matchId, btn, i, attempt = 0) {
     // "close" whatever history card the user had open (a plain View never touches #hist at all,
     // so it never had this problem).
     if (force) {
+      // v4.38: a cached share image (see shareImageCache below) is a snapshot of the verdict/
+      // winProb/chips as they looked at capture time — a re-analysis can change any of those, so
+      // the cached image must not survive it. No-op if nothing was ever cached for this match.
+      shareImageCache.delete(matchId);
       // If this same game currently has an OPEN row in history (it can appear in both the search
       // list and history at once, and either one's button can be what triggered this call),
       // snapshot that before the rebuild wipes #hist, then restore it afterward on the fresh DOM
@@ -1652,6 +1656,13 @@ async function renderResultCardFallbackBlob(riotId, matchId, region) {
     return await canvasToBlob(await renderResultCardFallback(data.entry, riotId, false));
   }
 }
+// v4.38: session-lifetime cache of generated share images, keyed by matchId — a repeated Share
+// click on the same game skips the DOM-capture paint-ops walk entirely (see onShareClick below).
+// In-memory only (no IndexedDB/persistence across reloads — not worth it for a handful of games
+// in one session), and never evicted (realistic session sizes are tiny) EXCEPT explicitly, by
+// analyze()'s force=1 success path above, since a re-analysis can change the verdict/winProb/chips
+// a cached image would otherwise still show stale.
+const shareImageCache = new Map();
 // v4.36: the Share button's click handler. No "Generating image..." page text anywhere — the
 // loading state lives entirely in the button itself (spinner, same pattern analyze() already uses
 // for View/↻), and the result opens in a modal rather than triggering an immediate download.
@@ -1661,6 +1672,8 @@ async function onShareClick(btn, matchId, riotId, key) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   try {
+    const cached = shareImageCache.get(matchId);
+    if (cached) { openShareModal(cached, riotId, matchId); return; }
     const viewBtn = document.getElementById('v' + key);
     const card = document.getElementById('g' + key);
     if (!card || !viewBtn) throw new Error('Card not found');
@@ -1681,6 +1694,7 @@ async function onShareClick(btn, matchId, riotId, key) {
     } catch {
       blob = await renderResultCardFallbackBlob(riotId, matchId, region);
     }
+    shareImageCache.set(matchId, blob);
     openShareModal(blob, riotId, matchId);
   } catch {
     showToast('Could not generate the image.');
@@ -1697,69 +1711,119 @@ function closeShareModal() {
   if (shareModalObjUrl) { URL.revokeObjectURL(shareModalObjUrl); shareModalObjUrl = null; }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeShareModal(); });
-// v4.37: user feedback — cut down to exactly two actions, Download and Share. "Share" is honest
-// about a real platform constraint: navigator.share with an actual file attached only exists on
-// browsers that support the Web Share API's file form (mostly mobile) — feature-detected via
-// canShare({files:[...]}), not just navigator.share's mere presence (desktop Chrome/Edge have
-// navigator.share for URLs/text but reject file shares). Where that's not available, there is no
-// way to hand a locally-generated image to WhatsApp/Reddit/X/Facebook's web share-intent URLs —
-// those only accept a URL + text, never a blob — so instead of faking an image attachment, Share
-// reveals a small row of platform icons that open each site's real share-intent with the game's
-// deep link + a one-line prompt. That's a genuinely different (lesser) capability than the mobile
-// case, and the UI says so honestly rather than pretending the image comes along.
+function triggerImageDownload(fileName) {
+  if (!shareModalObjUrl) return;
+  const a = document.createElement('a');
+  a.href = shareModalObjUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+// v4.38: user-approved mockup — the modal is a proper share sheet now (platforms + link, image
+// download de-emphasized to a small ghost link), not an image-preview-first dialog. No webfont
+// icon set is loaded anywhere in this app (checked: no ti-brand-* or similar <link> in index.html),
+// so these are inline SVGs — generic Feather-style glyphs (phone/message-square/message-circle)
+// for WhatsApp/Reddit/Discord rather than attempting to hand-reproduce each service's exact
+// trademarked logo path from memory (risking a subtly-wrong render); X's mark is just two crossing
+// lines, which IS its actual current logo, and Facebook's is a lowercase "f", also its actual
+// icon at small sizes — both drawn exactly, not approximated. Brand color + the label under each
+// circle carry the rest of the recognition.
+function phoneIconSvg() {
+  return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>';
+}
+function messageSquareIconSvg() {
+  return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+}
+function messageCircleIconSvg() {
+  return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>';
+}
+function xMarkIconSvg() {
+  return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="4" x2="20" y2="20"></line><line x1="20" y1="4" x2="4" y2="20"></line></svg>';
+}
+function facebookFIconSvg() {
+  return '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="18" font-size="18" font-weight="800" fill="#fff" text-anchor="middle" font-family="Georgia, \'Times New Roman\', serif">f</text></svg>';
+}
+function linkGlyphSvg() {
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+}
 const SHARE_TEXT = 'Was this lobby fair? — Losing Queue';
+// v4.38: Discord has no public web share-intent URL (unlike the other four) — verified there's
+// nothing equivalent to wa.me/reddit's submit/twitter's intent/facebook's sharer for it. The
+// honest fallback, same pattern as this app's other graceful-degradation spots (e.g. clipboard
+// write failing over to showing the raw text): copy the link and open Discord's own web app so
+// the user can paste it themselves, rather than pretending a real share-intent exists.
 const SHARE_PLATFORMS = [
-  { id: 'whatsapp', label: 'WhatsApp', color: '#25D366', url: (u, t) => `https://wa.me/?text=${encodeURIComponent(t + ' ' + u)}` },
-  { id: 'reddit', label: 'Reddit', color: '#FF4500', url: (u, t) => `https://www.reddit.com/submit?url=${encodeURIComponent(u)}&title=${encodeURIComponent(t)}` },
-  { id: 'x', label: 'X', color: '#000000', url: (u, t) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}` },
-  { id: 'facebook', label: 'Facebook', color: '#1877F2', url: (u, t) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}&quote=${encodeURIComponent(t)}` },
+  { id: 'whatsapp', label: 'WhatsApp', color: '#25D366', icon: phoneIconSvg },
+  { id: 'reddit', label: 'Reddit', color: '#FF4500', icon: messageSquareIconSvg },
+  { id: 'discord', label: 'Discord', color: '#5865F2', icon: messageCircleIconSvg },
+  { id: 'x', label: 'X', color: '#000000', icon: xMarkIconSvg },
+  { id: 'facebook', label: 'Facebook', color: '#1877F2', icon: facebookFIconSvg },
 ];
+// v4.38: per-platform behavior, deliberately NOT uniform:
+// - Reddit is the one exception that also downloads the image: Reddit posts read best as image
+//   posts, and reddit.com/submit has zero image-attachment support via URL params (unlike, say,
+//   X where people mostly just share a link) — so Reddit gets the image handed to the user
+//   directly (downloaded) alongside the submit intent, with a toast explaining why.
+// - WhatsApp/X/Facebook: their real share-intent URL only, carrying the game link + SHARE_TEXT —
+//   no auto-download, since none of them can accept a local image via URL either.
+// - Discord: no share-intent exists at all (see the comment above SHARE_PLATFORMS) — copy the
+//   link, open Discord's own web app, toast explaining why.
+async function handlePlatformClick(platform, gameUrl, fileName) {
+  if (platform.id === 'reddit') {
+    triggerImageDownload(fileName);
+    window.open(`https://www.reddit.com/submit?url=${encodeURIComponent(gameUrl)}&title=${encodeURIComponent(SHARE_TEXT)}`, '_blank', 'noopener,noreferrer');
+    showToast('Image downloaded — drag it into your Reddit post to make it an image post.');
+    return;
+  }
+  if (platform.id === 'discord') {
+    await copyToClipboardOrToast(gameUrl, 'Link copied — paste it in Discord');
+    window.open('https://discord.com/channels/@me', '_blank', 'noopener,noreferrer');
+    return;
+  }
+  const urls = {
+    whatsapp: `https://wa.me/?text=${encodeURIComponent(SHARE_TEXT + ' ' + gameUrl)}`,
+    x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(SHARE_TEXT)}&url=${encodeURIComponent(gameUrl)}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(gameUrl)}&quote=${encodeURIComponent(SHARE_TEXT)}`,
+  };
+  window.open(urls[platform.id], '_blank', 'noopener,noreferrer');
+}
 function openShareModal(blob, riotId, matchId) {
   closeShareModal();
   shareModalObjUrl = URL.createObjectURL(blob);
   const fileName = `losingqueue-${matchId}.png`;
   const gameUrl = shareLinkFor(riotId, matchId);
-  let canNativeShareFile = false;
-  try { canNativeShareFile = typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([blob], fileName, { type: 'image/png' })] }); } catch {}
   const modal = $('#shareModal');
   modal.innerHTML = `
-    <div class="modal-card" role="dialog" aria-modal="true" aria-label="Share this game">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-label="Share">
       <div class="modal-header">
-        <span class="modal-title">Share this game</span>
+        <span class="modal-title">Share</span>
         <button type="button" class="modal-x" id="shModalClose" aria-label="Close">✕</button>
       </div>
-      <img id="shModalImg" src="${shareModalObjUrl}" alt="Result card preview">
-      <div class="modal-actions">
-        <button type="button" id="shModalDownload">⬇ Download</button>
-        <button type="button" id="shModalShare">${shareIconSvg()} Share</button>
+      <div class="share-platforms" id="shModalPlatforms">
+        ${SHARE_PLATFORMS.map(p => `<button type="button" class="platform-item" data-platform="${p.id}" title="Share on ${p.label}" aria-label="Share on ${p.label}">
+          <span class="platform-circle" style="--pcolor:${p.color}">${p.icon()}</span>
+          <span class="platform-label">${p.label}</span>
+        </button>`).join('')}
       </div>
-      <div class="share-platforms" id="shModalPlatforms" hidden>
-        ${SHARE_PLATFORMS.map(p => `<button type="button" class="platform-btn" data-platform="${p.id}" style="--pcolor:${p.color}" title="Share on ${p.label}" aria-label="Share on ${p.label}">${p.label[0]}</button>`).join('')}
+      <div class="link-preview">
+        <span class="link-icon">${linkGlyphSvg()}</span>
+        <span class="link-text" title="${esc(gameUrl)}">${esc(gameUrl)}</span>
+        <button type="button" class="link-copy-btn" id="shModalCopyLink">Copy</button>
+      </div>
+      <div class="modal-footer-actions">
+        <button type="button" class="ghost-download" id="shModalDownload">⬇ Download image</button>
       </div>
     </div>`;
   modal.classList.add('open');
   $('#shModalClose').addEventListener('click', closeShareModal);
   modal.addEventListener('click', e => { if (e.target === modal) closeShareModal(); });
-  $('#shModalDownload').addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = shareModalObjUrl;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  });
-  $('#shModalShare').addEventListener('click', async () => {
-    if (canNativeShareFile) {
-      try { await navigator.share({ files: [new File([blob], fileName, { type: 'image/png' })], title: 'Losing Queue', text: SHARE_TEXT }); } catch {} // AbortError on user-cancel, etc. — nothing to report either way
-      return;
-    }
-    // No file-share support (most desktop browsers) — reveal the platform row instead of a fake attach.
-    $('#shModalPlatforms').hidden = !$('#shModalPlatforms').hidden;
-  });
+  $('#shModalCopyLink').addEventListener('click', () => copyToClipboardOrToast(gameUrl, 'Link copied to clipboard'));
+  $('#shModalDownload').addEventListener('click', () => triggerImageDownload(fileName));
   $('#shModalPlatforms').addEventListener('click', e => {
-    const btn = e.target.closest('.platform-btn'); if (!btn) return;
+    const btn = e.target.closest('.platform-item'); if (!btn) return;
     const platform = SHARE_PLATFORMS.find(p => p.id === btn.dataset.platform);
-    if (platform) window.open(platform.url(gameUrl, SHARE_TEXT), '_blank', 'noopener,noreferrer');
+    if (platform) handlePlatformClick(platform, gameUrl, fileName);
   });
 }
 
