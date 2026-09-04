@@ -4,23 +4,32 @@
 
 **[losingqueue.lol](https://www.losingqueue.lol/)** — the live app.
 
-**Was your League of Legends game actually winnable?**
+**Was your League of Legends game actually winnable — or were you dropped into a losing queue?**
 
-Enter a Riot ID, pick a game (or your **current live game**), and get a fairness verdict — **OK / BORDERLINE / NOT OK** — with a one-line reason and a lane-by-lane matchup table for all 10 players, computed from **pre-game data only** (what everyone looked like *before* the match started, not after).
+Enter a Riot ID, pick a game (or your **current live game**), and get a fairness verdict — **FAIR / NOT FAIR / FAVORED** — with a one-line reason and a lane-by-lane matchup table for all 10 players, computed from **pre-game data only** (what everyone looked like *before* the match started, not after).
 
 > Free & open source (MIT). Fork it, self-host it in ~10 minutes on free tiers.
+
+![A matchup card showing a NOT FAIR-verdict game: five lane rows with champion icons, GA scores and chips (autofill, OTP, smurf, duo, countered), a Favored column, and a team-footer win-probability bar](public/screenshot.png)
+*A real analyzed game — matchmaking-side verdict (lane GA + duo synergy) split from the draft-side read (counter picks), win probability bar, and per-player chips for autofill/OTP/smurf/duo/streaks.*
 
 ## Features
 
 - 🎯 **Ranked Solo/Duo only** (queue 420) — ARAM and flex never pollute the data
 - ⏪ **Pre-game form** for every player: W-L of their 5 ranked games *before* the analyzed match — current form lies, pre-game form doesn't
-- ⚖️ **Lane-by-lane matchup table**: champion · player · GA per side, `EVEN` / `BLUE +n` / `RED +n` verdicts, favored-side tinting, and a TEAM footer with the overall call
-- 🏷️ **At-a-glance chips** per player: `⚠️ autofill`, `OTP`, `🔗 duo` (proven by shared pre-game match IDs), `🔥/❄️` streaks, color-coded CS/min
+- ⚖️ **Symmetric lane-by-lane matchup table**: champion · player · GA per side, `EVEN` / `BLUE +n` / `RED +n` verdicts with role icons, favored-side tinting, and a TEAM footer with the overall call
+- 🎲 **Matchmaking vs. draft, split apart**: the `FAIR / NOT FAIR / FAVORED` verdict is the lobby the matchmaker handed you (lane strength, autofill, duo synergy); a separate `DRAFT` line calls out counter-picks and bot-lane synergy that are on you, not the queue
+- 📊 **Win probability bar**: a poker-style blue/red % split on the same GA gap the verdict itself uses — never disagrees with the rest of the page
+- 🤝 **Duo detection**: proven by *shared pre-game match IDs* (not guessed from names), with joint W-L record and a separate bot-lane (ADC+SUPPORT) synergy read from a static per-patch snapshot
+- 🏷️ **At-a-glance chips** per player: `⚠️ autofill`, `OTP` / `OTP denied`, `🔗 duo`, `SMURF?`, `🔥/❄️` streaks, mastery %, rank·winrate tags, color-coded CS/min
 - 👑 **MVP / ACE + 1st–10th** in-game performance ranking (KDA, kill participation, damage dealt share, **objective damage**, **damage taken** with an over-death guard, CS, vision — support- and tank-friendly)
+- 🚩 **"LOSING QUEUE?" streak badge** when a player's last 3+ analyzed games were *all* stacked against them, win or lose — the matchmaker pattern, not any one result
 - 🔴 **Live game analysis** (spectator-v5): analyze your *current* lobby during loading screen — know by minute 2 which lanes are favored and where to play (roles inferred from each player's history)
+- 🌆 **Dynamic background**: the searched player's most-played champion splash, low-opacity behind the whole page
+- 📤 **Share cards**: a "Share" button captures the *actual rendered matchup card* (not a redrawn graphic) into a downloadable/clipboard-ready PNG, plus a one-click profile link and a per-game deep link that loads keylessly for anyone
 - ⭐ **Bookmarked profiles** in the search field's dropdown; with **sign-in (Clerk)** they sync across devices
 - 📜 **Analyzed history** per player with pagination beyond the last 10 games
-- 🤝 **Shared community cache** (Turso): any game analyzed once is instant and free for everyone, forever
+- 🔓 **Keyless browsing**: any game analyzed once is cached (Turso) and viewable by anyone with zero Riot key, forever — deep links and profile links both resolve straight from that shared cache
 - 🔑 **Bring-your-own-key**: paste your free Riot API key for unlimited analyses; keyless visitors get 3 free deep analyses/day (5 when signed in) on the shared key with a fair-use lock
 
 ## How it works
