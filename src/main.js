@@ -1350,9 +1350,16 @@ async function domToPngBlob(node, width) {
   document.body.appendChild(node);
   try {
     await inlineImages(node);
-    // Two rAFs: one for the browser to apply the just-swapped data: URI srcs, one to let layout
-    // actually settle before measuring — a single frame occasionally still read a pre-image height.
-    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    // getBoundingClientRect forces an immediate synchronous layout — it does NOT need a painted
+    // frame to be accurate, and every image here has an explicit CSS width/height (.champ-icon,
+    // .role-icon, .lol-logo) so the measured height doesn't even depend on image decode completing.
+    // v4.36 shipped this as a double requestAnimationFrame instead, reasoning "let layout settle
+    // before measuring" — that's a real hang risk: rAF callbacks are suspended entirely while the
+    // tab is hidden/backgrounded (confirmed in testing — Share hung forever with the pane not
+    // foregrounded), and a user backgrounding the tab right after clicking Share is completely
+    // plausible. A microtask tick is all that's actually needed after the synchronous
+    // setAttribute('src', ...) calls above.
+    await Promise.resolve();
     const height = Math.max(1, Math.ceil(node.getBoundingClientRect().height));
     const cssText = await fetchAppCss();
     const svgMarkup = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`
