@@ -63,7 +63,7 @@ document.querySelector('#app').innerHTML = `
   </div>
   <div id="shareModal" class="modal-backdrop"></div>
   <div id="toast" class="toast"></div>
-  <footer class="foot"><a href="https://github.com/angelstreet/lol-matchmaking-fairness" target="_blank" rel="noreferrer">⭐ Open source — star it on GitHub</a><span class="dim"> · MIT · not endorsed by Riot Games · </span><a href="/scoring.html" class="algo-link">ⓘ How we score</a></footer>`;
+  <footer class="foot"><a href="https://github.com/angelstreet/losingqueue" target="_blank" rel="noreferrer">⭐ Open source — star it on GitHub</a><span class="dim"> · MIT · not endorsed by Riot Games · </span><a href="/scoring.html" class="algo-link">ⓘ How we score</a></footer>`;
 
 const $ = s => document.querySelector(s);
 $('#apiKey').value = localStorage.getItem('rgapi') || '';
