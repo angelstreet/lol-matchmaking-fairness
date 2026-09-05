@@ -217,7 +217,11 @@ td.you + td.you { border-left:none !important; }
    long combinations (e.g. a live-snapshot row's "12m (in progress)" duration). */
 .col-date { width:78px; text-overflow:ellipsis; }
 .gcard { background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:8px; overflow:hidden; }
-.gcard .row { background:none; border:0; border-radius:0; margin:0; }
+/* Clicking anywhere on this summary line now expands/collapses the row (see the delegated
+   .gcard > .row listener in main.js), not just the View/Analyze button — cursor:pointer plus a
+   subtle hover tint is the whole affordance; deliberately not styled to look like a button. */
+.gcard .row { background:none; border:0; border-radius:0; margin:0; cursor:pointer; }
+.gcard .row:hover { background:var(--line); }
 .gcard .details { display:none; border-top:1px solid var(--line); padding:12px 16px; overflow-x:auto; }
 .gcard.open .details { display:block; }
 .matchup { margin-bottom:16px; }

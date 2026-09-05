@@ -1183,6 +1183,41 @@ function renderRows(games, container, prefix, rid) {
   container.querySelectorAll('.share-btn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); onShareClick(b, b.dataset.mid, b.dataset.rid, b.dataset.key); }));
 }
 
+// v4.40: clicking anywhere on a row's summary line (.row — champion name, KDA, badge, date, the
+// one-liner, empty space between the fixed columns...) now also expands/collapses it, exactly like
+// clicking View/Analyze already did — not just the button itself. Delegated on `document` rather
+// than bound inside renderRows: .row/.gcard markup is fully rebuilt via innerHTML on every render
+// (search results, history, the live-watch refresh), so a listener attached per-render would either
+// need careful rebinding bookkeeping or would silently stack duplicates — attaching once here,
+// same pattern as the .sec-h/.build-h delegated handlers further down this file, sidesteps that
+// entirely.
+// Scoped to `.gcard > .row` specifically, NOT the whole `.gcard` — so this can never reach into an
+// already-open `.details` panel (matchup table, per-team tables, the "Recommended build" chip).
+// Those have their own click-to-expand sub-sections (.sec-h/.build-h, delegated further down) that
+// must stay independently toggleable without also collapsing the whole card, and their plain text/
+// stat-cell content must stay exactly as unclickable as everywhere else on the page.
+// Bails out via closest('button, a, .icon-btn, .share-btn') whenever the click actually landed on
+// one of the row's own interactive controls: the View/Analyze button, the ↻ re-analyze icon and
+// the Share icon are all real <button> elements (plain `button` already covers every one of them —
+// `.icon-btn`/`.share-btn` are kept explicit only for readability), and a champion/player name is
+// rendered as a real `<a class="plink">` (nameLink, above) — so `a` covers that op.gg link too.
+// Each of those keeps firing its own already-wired listener (analyze()'s toggle-or-fetch,
+// re-analyze, the share modal, or the browser's own link navigation) without this ALSO toggling
+// the row underneath it.
+// Reuses the exact same toggle-or-analyze branching the View button uses by literally clicking it
+// (`viewBtn.click()`) instead of re-implementing any part of analyze()'s logic here — `.mini:not
+// (.icon-btn)` is the same "find the real View button, not the ↻ one" selector already used
+// elsewhere in this file (see the history-mirror lookup in analyze() above) since the re-analyze
+// button also carries the shared `.mini` class. A disabled View button (mid-request spinner)
+// simply won't dispatch a click at all, so this can never double-trigger an in-flight analyze().
+document.addEventListener('click', e => {
+  const row = e.target.closest('.gcard > .row');
+  if (!row) return;
+  if (e.target.closest('button, a, .icon-btn, .share-btn')) return;
+  const viewBtn = row.querySelector('.mini:not(.icon-btn)');
+  if (viewBtn) viewBtn.click();
+});
+
 async function analyze(matchId, btn, i, attempt = 0) {
   const card = document.getElementById('g' + i);
   // The re-analyze "↻" button is a separate element from the row's View button — it always
