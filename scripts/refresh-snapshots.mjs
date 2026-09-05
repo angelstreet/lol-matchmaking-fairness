@@ -328,11 +328,27 @@ async function fetchProExamples(champList, keyToId, itemNames, runeNames) {
 
     const m = /<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
     if (!m) { skipped.push(`${c.id} (no __NEXT_DATA__)`); await sleep(150); continue; }
-    let matches;
+    let initialData;
     try {
-      matches = JSON.parse(m[1])?.props?.pageProps?.initialData?.prosMatchesCollection?.matches;
+      initialData = JSON.parse(m[1])?.props?.pageProps?.initialData;
     } catch (e) { skipped.push(`${c.id} (bad JSON: ${e.message})`); await sleep(150); continue; }
+    const matches = initialData?.prosMatchesCollection?.matches;
     if (!matches || !matches.length) { await sleep(150); continue; } // no pro-tracked games -> no entry, not an empty array
+
+    // proId -> {name, key}: parsed from this SAME already-fetched page's staticData.pros (no extra
+    // request — every champion page embeds the full pro roster, not just the pros who played that
+    // champion). `key` is lolvvv's own short handle (e.g. "PekinWoof"), used both as the display-name
+    // fallback and as the /pro/{key} profile-link slug; `nickName` (e.g. "Pekin Woof") is preferred
+    // for display when present. op.gg/Riot-ID linking was confirmed NOT possible here (these pro
+    // records carry a puuid but null summonerId/accountId — no resolvable current Riot ID without a
+    // live keyed Riot API call, which this script deliberately never makes), so lolvvv's own
+    // /pro/{key} profile page is used as the link target instead (confirmed live: 308-redirects to
+    // /pro/{key}/build, but the bare /pro/{key} URL itself is a valid href).
+    const proById = new Map();
+    for (const pro of initialData?.staticData?.pros || []) {
+      if (pro?.proId == null) continue;
+      proById.set(pro.proId, { name: pro.nickName || pro.key || null, key: pro.key || null });
+    }
 
     const examples = [];
     for (const match of matches.slice(0, 10)) {
@@ -346,9 +362,12 @@ async function fetchProExamples(champList, keyToId, itemNames, runeNames) {
       const primaryStyle = p.stats?.perkPrimaryStyle != null ? runeNames.get(p.stats.perkPrimaryStyle) : null;
       const subStyle = p.stats?.perkSubStyle != null ? runeNames.get(p.stats.perkSubStyle) : null;
       if (!opponent || !items.length) continue; // can't resolve the matchup or the build -> skip, don't fabricate
+      const proId = match.participantIdentity?.pro?.proId;
+      const pro = proId != null ? proById.get(proId) : null;
       examples.push({
         opponent, win: !!p.stats?.win, patch: match.patch || null, position: p.position || null,
         items, keystone, primaryStyle, subStyle,
+        proName: pro?.name || null, proKey: pro?.key || null,
       });
     }
     if (examples.length) { EXAMPLES[c.id] = examples; matchCount += examples.length; }
@@ -511,7 +530,7 @@ ${body}
 
 function proExamplesFile({ date, EXAMPLES, matched, totalChamps, matchCount }) {
   const body = Object.keys(EXAMPLES).sort().map(champ => {
-    const rows = EXAMPLES[champ].map(ex => `    { opponent: ${JSON.stringify(ex.opponent)}, win: ${ex.win}, patch: ${JSON.stringify(ex.patch)}, position: ${JSON.stringify(ex.position)}, items: ${JSON.stringify(ex.items)}, keystone: ${JSON.stringify(ex.keystone)}, primaryStyle: ${JSON.stringify(ex.primaryStyle)}, subStyle: ${JSON.stringify(ex.subStyle)} },`).join('\n');
+    const rows = EXAMPLES[champ].map(ex => `    { opponent: ${JSON.stringify(ex.opponent)}, win: ${ex.win}, patch: ${JSON.stringify(ex.patch)}, position: ${JSON.stringify(ex.position)}, items: ${JSON.stringify(ex.items)}, keystone: ${JSON.stringify(ex.keystone)}, primaryStyle: ${JSON.stringify(ex.primaryStyle)}, subStyle: ${JSON.stringify(ex.subStyle)}, proName: ${JSON.stringify(ex.proName)}, proKey: ${JSON.stringify(ex.proKey)} },`).join('\n');
     return `  ${champ}: [\n${rows}\n  ],`;
   }).join('\n');
   return `// lib/proExamples.mjs — trimmed pro/high-elo example games per champion, same "curated static
@@ -529,6 +548,17 @@ function proExamplesFile({ date, EXAMPLES, matched, totalChamps, matchCount }) {
 // keystone + rune-style summary — ids resolved to names via Data Dragon's item.json/
 // runesReforged.json. A game whose opponent or items can't be resolved is dropped rather than
 // stored partially.
+//
+// proName/proKey identify the real pro who played the game — parsed from the SAME page's
+// staticData.pros roster (proId -> {nickName, key}), joined against the match's own
+// participantIdentity.pro.proId. proName is the display name (nickName, falling back to key);
+// proKey is lolvvv's short handle, used to build a profile link at https://www.lolvvv.com/pro/
+// {proKey}. op.gg/Riot-ID linking is NOT possible here (these pro records carry a puuid but null
+// summonerId/accountId — no resolvable current Riot ID without a live keyed Riot API call, which
+// this script deliberately never makes), so lolvvv's own pro-profile page is the link target
+// instead. A pro that can't be resolved (proId missing from that page's roster, or no pro at all
+// attached to the match) -> both fields null, same "missing data -> no display" rule as
+// everywhere else in this file — never breaks the rest of the example entry.
 //
 // THIS IS A THIN, ILLUSTRATIVE DATA SOURCE, NOT A STATISTICAL ONE: lolvvv only tracks games
 // involving pro-associated accounts, so a niche or off-meta champion can have a single-digit

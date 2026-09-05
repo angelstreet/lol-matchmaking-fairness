@@ -1932,7 +1932,7 @@ const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" 
 const perfHTML = p => safeRender(() => {
   if (typeof p?.perfScore !== 'number') return '';
   const score = Number.isInteger(p.perfScore) ? p.perfScore : p.perfScore.toFixed(1);
-  return `<span class="perf-tag" title="In-game performance score — how well you actually played, independent of the pre-game fairness verdict">${score}/10</span>`;
+  return `<span class="perf-tag" title="Performance score — based on KDA, kill participation, damage share, objective damage share, damage taken share, CS/min, and vision score per minute. Independent of the pre-game fairness verdict.">${score}/10</span>`;
 });
 
 // v4.27: full-page background art — the searched player's most-played champion (across their
@@ -2369,7 +2369,15 @@ function buildRevealHTML(champ, pos, oppChamp, uid) {
     const example = proExampleOf(champ, oppChamp);
     if (example) {
       const headline = example.items[0] || build.items[0];
-      panelBody += `<br><span class="dim">Pro example: built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`;
+      // v-pro-name: name+link the real pro when lolvvv's roster resolved one for this game
+      // (proName/proKey — see lib/proExamples.mjs's header); missing/unresolvable -> fall back to
+      // the original unlinked wording exactly as before, never a broken half-link.
+      const proLabel = (example.proName && example.proKey)
+        ? `<a href="https://www.lolvvv.com/pro/${encodeURIComponent(example.proKey)}" target="_blank" rel="noopener">${esc(example.proName)}</a>`
+        : null;
+      panelBody += proLabel
+        ? `<br><span class="dim">Pro example: ${proLabel} built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`
+        : `<br><span class="dim">Pro example: built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`;
     }
     const targetId = `bd-${uid}`;
     return {
