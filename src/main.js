@@ -1849,6 +1849,12 @@ const ROLE_ICON = {
   UTILITY: { url: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-utility.png', label: 'SUPPORT' },
 };
 const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" title="${p.badge === 'MVP' ? 'Best performance of the winning team' : 'Best performance of the losing team'}">${p.badge}</span>` : '';
+// Performance score chip — purely informational (post-game, independent of the pre-game fairness
+// verdict), so it's deliberately styled/positioned apart from GA and the rank·winrate tag rather
+// than sitting in the same line as either (see .perf-tag in style.css). Legacy cached entries
+// analyzed before this feature shipped have no perfScore field at all — render nothing rather
+// than a bogus "–/10", same convention as badgeHTML/rankTag above for missing data.
+const perfHTML = p => (typeof p?.perfScore === 'number') ? `<span class="perf-tag" title="In-game performance score — how well you actually played, independent of the pre-game fairness verdict">${p.perfScore.toFixed(1)}/10</span>` : '';
 
 // v4.27: full-page background art — the searched player's most-played champion (across their
 // currently-listed games) as a Data Dragon splash, at low opacity behind everything (see
@@ -2389,7 +2395,7 @@ function matchupHTML(g, rid) {
       const info = [place, name, kda, ga].filter(Boolean).join(' ');
       main = `<span class="p-main-info">${info}</span>` + (rank ? `<span class="p-cell-edge">${rank}</span>` : '');
     }
-    const chips = badgeHTML(p) + chipsHTML(p, oppChamp) + (extraChip || '');
+    const chips = badgeHTML(p) + chipsHTML(p, oppChamp) + perfHTML(p) + (extraChip || '');
     return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
   };
   // v4.22: draft-pill component strings collected as they're derived — countered-lane notes here
@@ -2503,7 +2509,7 @@ function matchupHTML(g, rid) {
 // Column widths shared by both team tables (via an identical <colgroup> in each) so BLUE and
 // RED line up vertically — table-layout:fixed makes the browser honor these instead of sizing
 // columns to content, which is what caused the two tables to drift apart before.
-const DETAILS_COLS = [26, 15, 9, 10, 8, 8, 6, 5, 13];
+const DETAILS_COLS = [24, 14, 9, 9, 8, 8, 6, 5, 6, 11];
 const detailsColgroup = '<colgroup>' + DETAILS_COLS.map(w => `<col style="width:${w}%">`).join('') + '</colgroup>';
 
 function detailsHTML(g, key = 'x', rid) {
@@ -2515,7 +2521,7 @@ function detailsHTML(g, key = 'x', rid) {
     const won = (g.result === 'Victory') === (g.userTeam === t);
     return '<h4><span class="tm-' + t + '">' + t.toUpperCase() + '</span>' + (g.userTeam === t ? ' <span class="gold">YOU</span>' : '') + ' · ' + (won ? 'win' : 'loss') +
       (g.teamGA && g.teamGA[t] ? ' · team GA ' + g.teamGA[t] : '') + '</h4>' +
-      '<table class="details-table">' + detailsColgroup + '<tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>GA</th><th title="Wins-losses in their last 5 ranked games before this one">Form (last 5 before game)</th></tr>' +
+      '<table class="details-table">' + detailsColgroup + '<tr><th>Player</th><th>Rank</th><th>Pos</th><th>Champ</th><th>KDA</th><th>Dmg</th><th>CS</th><th>GA</th><th title="In-game performance score — how well they actually played, independent of the pre-game fairness verdict">Perf</th><th title="Wins-losses in their last 5 ranked games before this one">Form (last 5 before game)</th></tr>' +
       rows.map(p => {
         const isMe = p.n.replace('#', '-').toLowerCase() === meName;
         const gaCls = p.ga == null ? '' : p.ga >= 70 ? 'ga-hi' : p.ga <= 45 ? 'ga-lo' : '';
@@ -2530,9 +2536,12 @@ function detailsHTML(g, key = 'x', rid) {
         // gated behind a 20-game sample floor, matching the matchup-row tag's "missing wr -> rank
         // only" rule instead of silently hiding a real (if small-sample) number.
         const rankCell = esc(rankDetailLabel(p.rank, p.wr));
+        // Legacy cached entries analyzed before perfScore existed have no such field — render a
+        // plain dash rather than "undefined/10" or "null/10".
+        const perfCell = typeof p.perfScore === 'number' ? p.perfScore.toFixed(1) : '–';
         return '<tr class="t-' + t + (isMe ? ' you' : '') + '"><td>' + nameCell + '</td><td>' + rankCell + '</td><td>' + esc(p.pos) +
           '</td><td>' + esc(p.champ) + '</td><td>' + esc(p.kda) + '</td><td>' + (p.dmg || 0).toLocaleString() + '</td><td>' + p.cs +
-          '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + esc(p.form || '–') + '</td></tr>';
+          '</td><td class="' + gaCls + '">' + (p.ga ?? '–') + '</td><td>' + perfCell + '</td><td>' + esc(p.form || '–') + '</td></tr>';
       }).join('') + '</table>';
   }).join('');
   const mId = 'sm' + key, dId = 'sd' + key;

@@ -1,6 +1,6 @@
 :root { --bg:#0e1015; --card:#181b22; --line:#262b36; --txt:#e8eaf0; --dim:#8a91a3;
         --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; --red:#d97a4a;
-        --splash-img:none; }
+        --perf:#3fc8d4; --splash-img:none; }
 * { box-sizing:border-box; margin:0; }
 /* v4.19: widened 980 -> 1200 — the rank·WR tags (v4.18) pushed some matchup player cells to wrap
    onto 2 lines at the old width, and 980 was leaving large unused side margins on typical desktop
@@ -289,6 +289,13 @@ td.you + td.you { border-left:none !important; }
    even if a long name wraps the CELL as a whole, the tag itself stays intact rather than breaking
    mid-string. */
 .rank-tag { font-size:11px; font-weight:700; border:1px solid var(--line); border-radius:4px; padding:0 3px; white-space:nowrap; }
+/* Performance score chip ("7.8/10") — purely informational, post-game, independent of the
+   fairness verdict, so it's deliberately NOT styled like GA (bold plain text) or .rank-tag
+   (square-cornered, --line border): a distinct teal accent (--perf) plus a pill shape (like the
+   MVP/ACE badges it sits next to in the chip row) keeps it from ever being read as a rank or a GA
+   figure at a glance. Lives in the per-player CHIP line (see cellName in main.js), not the
+   place/name/kda/GA/rank line above it, for the same "never confused with GA or rank" reason. */
+.perf-tag { font-size:10px; font-weight:800; color:var(--perf); border:1px solid currentColor; border-radius:99px; padding:0 6px; white-space:nowrap; }
 /* v4.25/v4.26: .p-main is a flex row of exactly two children — the bundled "everything else"
    (.p-main-info) and whichever single element sits at the cell's own far edge (.p-cell-edge),
    pushed there via margin-left:auto so it lands flush right with whatever slack that row has

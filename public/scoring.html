@@ -10,7 +10,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <style>
   :root { --bg:#0e1015; --card:#181b22; --line:#262b36; --txt:#e8eaf0; --dim:#8a91a3;
-          --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; }
+          --ok:#3fb68b; --mid:#e0a63d; --bad:#e05d5d; --blue:#4a90d9; --perf:#3fc8d4; }
   * { box-sizing:border-box; margin:0; }
   body { background:var(--bg); color:var(--txt); font:14px/1.4 system-ui, sans-serif; padding:18px; max-width:760px; margin:auto; }
   a { color:var(--ok); }
@@ -36,6 +36,7 @@
   .chip.mid { color:var(--mid); border-color:var(--mid); }
   .chip.bad { color:var(--bad); border-color:var(--bad); }
   .chip.blue { color:var(--blue); border-color:var(--blue); }
+  .chip.perf { color:var(--perf); border-color:var(--perf); }
   .close { font-size:12.5px; color:var(--mid); margin-top:14px; padding-top:10px; border-top:1px solid var(--line); }
   footer { margin-top:12px; padding-top:8px; border-top:1px solid var(--line); font-size:11px; color:var(--dim); text-align:center; }
 </style>
@@ -100,6 +101,16 @@
   <h2>Win probability</h2>
   <div class="card">
     <div class="thresh">Logistic on netMM + netDraft (the ONE place both sub-nets are summed back together) — winProb predicts the OUTCOME, not fairness, so it has to account for a draft-side stomp (a hard counter, a strong bot duo) the same as a matchmaking-side one, even though the verdict badge (netMM only) doesn't. |netMM+netDraft| 10 → ~55/45, |netMM+netDraft| 20 → ~60/40. Conservatively calibrated — our analysis database is still small (~34 games), so this ships a deliberately gentle curve rather than an aggressive best-fit; refit planned as the game database grows.</div>
+  </div>
+
+  <h2>Performance score (in-game, not fairness)</h2>
+  <div class="card">
+    <div class="thresh">GA predicts BEFORE the game — history, rank, comfort. Performance score rates AFTER the game — how you actually played THIS match. Two different questions, never mixed: perf score has zero input into GA, the fairness verdict, the draft verdict, or win probability.</div>
+    <div class="thresh">Shown as a <span class="chip perf">7.8/10</span> tag on every player, both in the matchup rows and the per-team Details table.</div>
+    <div class="thresh">Same underlying metric that already ranks the lobby 1st–10th and picks MVP/ACE: KDA + kill participation + damage share + objective damage share + damage-taken share (halved past 6 deaths) + CS/min + vision/min, support-friendly weights.</div>
+    <code>perfScore = 1 + 9 × (yourRaw − lobbyMinRaw) / (lobbyMaxRaw − lobbyMinRaw)</code>
+    <div class="thresh">Min-max normalized against the OTHER 9 players in that specific game (not a fixed scale) — a stomp and a close game both spread their 10 raw scores across a similarly-sized range, but where that range SITS varies game to game, so anchoring to this lobby's own best/worst keeps the 1–10 read comparable across games. Flat game (practically only &lt;2 scoreable players) falls back to a neutral 5.5.</div>
+    <div class="thresh">Live (in-progress) games don't get a score — the underlying metric needs final damage/objective/vision numbers, which don't exist until the game ends. Games analyzed before this feature shipped also show no tag rather than a guessed number.</div>
   </div>
 
   <h2>Chips</h2>
