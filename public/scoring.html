@@ -112,6 +112,7 @@
     <code>perfScore = 1 + 9 × (yourRaw − lobbyMinRaw) / (lobbyMaxRaw − lobbyMinRaw)</code>
     <div class="thresh">Min-max normalized against the OTHER 9 players in that specific game (not a fixed scale) — a stomp and a close game both spread their 10 raw scores across a similarly-sized range, but where that range SITS varies game to game, so anchoring to this lobby's own best/worst keeps the 1–10 read comparable across games. Flat game (practically only &lt;2 scoreable players) falls back to a neutral 5.5.</div>
     <div class="thresh">Live (in-progress) games don't get a score — the underlying metric needs final damage/objective/vision numbers, which don't exist until the game ends. Games analyzed before this feature shipped also show no tag rather than a guessed number.</div>
+    <div class="thresh">Click a player's score tag to reveal the actual numbers behind it — their real KDA, kill participation %, damage share, objective share, damage-taken share, CS/min and vision/min for that game, not just the category names. Legacy/live entries with no per-value breakdown fall back to a plain hover tooltip naming the categories.</div>
   </div>
 
   <h2>Chips</h2>

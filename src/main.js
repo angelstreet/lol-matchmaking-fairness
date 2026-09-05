@@ -1929,11 +1929,28 @@ const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" 
 // than sitting in the same line as either (see .perf-tag in style.css). Legacy cached entries
 // analyzed before this feature shipped have no perfScore field at all — render nothing rather
 // than a bogus "–/10", same convention as badgeHTML/rankTag above for missing data.
-const perfHTML = p => safeRender(() => {
-  if (typeof p?.perfScore !== 'number') return '';
+// v-perf-detail: returns {chip, panel} like buildRevealHTML — a player wants to see the REAL
+// numbers behind their own score (their actual KDA, kill participation %, etc.), not just a list
+// of category names, and 7 raw values is too dense for a single tooltip line. `perfDetail` (see
+// lib/riot.mjs's analyzeMatch) carries those real per-player values; click-to-reveal on the chip,
+// same generic id-toggle mechanism as the "build" chip (reuses the same delegated click listener
+// below, widened to `.build-h, .perf-h` rather than adding a second listener). Legacy/live entries
+// with perfDetail: null (see riot.mjs) fall back to the original generic category-name tooltip —
+// still informative, just not player-specific — instead of breaking or showing an empty chip.
+const perfHTML = (p, uid) => safeRender(() => {
+  if (typeof p?.perfScore !== 'number') return { chip: '', panel: '' };
   const score = Number.isInteger(p.perfScore) ? p.perfScore : p.perfScore.toFixed(1);
-  return `<span class="perf-tag" title="Performance score — based on KDA, kill participation, damage share, objective damage share, damage taken share, CS/min, and vision score per minute. Independent of the pre-game fairness verdict.">${score}/10</span>`;
-});
+  const d = p.perfDetail;
+  if (!d) {
+    return { chip: `<span class="perf-tag" title="Performance score — based on KDA, kill participation, damage share, objective damage share, damage taken share, CS/min, and vision score per minute. Independent of the pre-game fairness verdict.">${score}/10</span>`, panel: '' };
+  }
+  const targetId = `pf-${uid}`;
+  const panelBody = `Performance ${score}/10 — KDA ${d.kda} · kill participation ${d.kp}% · damage share ${d.dmgShare}% · objective share ${d.objShare}% · damage taken share ${d.dmgTakenShare}% · ${d.cspm} cs/min · ${d.vspm} vision/min`;
+  return {
+    chip: `<span class="perf-tag perf-h" data-target="${targetId}" title="Performance score — click for the real numbers behind it">${score}/10</span>`,
+    panel: `<div class="perf-b" id="${targetId}" style="display:none">${esc(panelBody)}</div>`,
+  };
+}, { chip: '', panel: '' });
 
 // v4.27: full-page background art — the searched player's most-played champion (across their
 // currently-listed games) as a Data Dragon splash, at low opacity behind everything (see
@@ -2631,7 +2648,7 @@ function matchupHTML(g, rid, key = 'x') {
     // tag.
     const rt = rankTag(p.rank, p.wr, p.seasonGames);
     const rank = rt ? `<span class="rank-tag dim" title="${esc(rt.title)}">${esc(rt.label)}</span>` : '';
-    const perf = perfHTML(p);
+    const perf = perfHTML(p, `${key}-perf-${side}`);
     // v4.25/v4.26: the non-pushed content stays bundled in one inline span (p-main-info) so
     // .p-main can be a flex row without collapsing the plain-space joins between its tokens —
     // flexbox only treats non-whitespace text runs as their own anonymous item, so a bare " "
@@ -2642,11 +2659,11 @@ function matchupHTML(g, rid, key = 'x') {
     let main;
     if (side === 'red') {
       const cluster = [rank, place, ga, kda].filter(Boolean).join(' ');
-      const edge = [perf, name].filter(Boolean).join(' ');
+      const edge = [perf.chip, name].filter(Boolean).join(' ');
       main = `<span class="p-main-info">${cluster}</span><span class="p-cell-edge">${edge}</span>`;
     } else {
       const info = [place, name, kda, ga].filter(Boolean).join(' ');
-      const edge = [rank, perf].filter(Boolean).join(' ');
+      const edge = [rank, perf.chip].filter(Boolean).join(' ');
       main = `<span class="p-main-info">${info}</span>` + (edge ? `<span class="p-cell-edge">${edge}</span>` : '');
     }
     // v-two-lines: the "build" chip joins the rest of the chip group instead of being appended as
@@ -2654,7 +2671,7 @@ function matchupHTML(g, rid, key = 'x') {
     // everything, unaffected by the "2 visible lines" budget since it's display:none until clicked.
     const build = role ? buildRevealHTML(p.champ, role, oppChamp, `${key}-${role}-${side}`) : { chip: '', panel: '' };
     const chips = badgeHTML(p) + chipsHTML(p, oppChamp, mergedDuo) + (extraChip || '') + build.chip;
-    return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '') + build.panel;
+    return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '') + build.panel + perf.panel;
   };
   // v4.22: draft-pill component strings collected as they're derived — countered-lane notes here
   // (as each lane is walked, reusing the exact bCounter/rCounter values already computed per-lane
@@ -2839,11 +2856,15 @@ document.addEventListener('click', e => {
   h.textContent = h.textContent.replace(/^./, willShow ? '▾' : '▸');
 });
 
-// v4.33: same generic id-toggle pattern as the .sec-h handler above, scoped to its own class so
-// the "Recommended build" chip (buildRevealHTML) never gets swept up by .sec-h's arrow-prefix
-// text rewrite (a "build" chip has no leading glyph to replace).
+// v4.33: same generic id-toggle pattern as the .sec-h handler above, scoped to its own class(es)
+// so the "Recommended build" chip (buildRevealHTML) never gets swept up by .sec-h's arrow-prefix
+// text rewrite (a "build" chip has no leading glyph to replace). v-perf-detail: the perf-score
+// reveal (perfHTML's .perf-h chip) reuses this exact same listener/id-toggle mechanism rather than
+// registering a second one — it just needed its own CSS class so its cursor/hover styling doesn't
+// bleed onto the plain (no-detail) perf tag, which stays non-interactive (see .perf-tag in
+// style.css).
 document.addEventListener('click', e => {
-  const h = e.target.closest('.build-h');
+  const h = e.target.closest('.build-h, .perf-h');
   if (!h) return;
   const body = document.getElementById(h.dataset.target);
   if (!body) return;

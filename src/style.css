@@ -302,6 +302,12 @@ td.you + td.you { border-left:none !important; }
    figure at a glance. Lives in the per-player CHIP line (see cellName in main.js), not the
    place/name/kda/GA/rank line above it, for the same "never confused with GA or rank" reason. */
 .perf-tag { font-size:10px; font-weight:800; color:var(--perf); border:1px solid currentColor; border-radius:99px; padding:0 6px; white-space:nowrap; }
+/* v-perf-detail: when a real perfDetail is available (see perfHTML in main.js), the tag becomes a
+   click-to-reveal (same mechanism as .build-h/.build-b) showing the actual per-player numbers
+   behind the score instead of just a category-name tooltip. Legacy/live entries with no perfDetail
+   keep the plain non-interactive .perf-tag above (no cursor change, tooltip only). */
+.perf-tag.perf-h { cursor:pointer; }
+.perf-b { font-size:11px; color:var(--dim); line-height:1.5; margin-top:3px; max-width:320px; }
 /* v4.25/v4.26: .p-main is a flex row of exactly two children — the bundled "everything else"
    (.p-main-info) and whichever single element sits at the cell's own far edge (.p-cell-edge),
    pushed there via margin-left:auto so it lands flush right with whatever slack that row has
