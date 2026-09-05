@@ -393,22 +393,32 @@ const DRAFT_VERDICT_EXPLAIN = {
   EVEN: 'Champion select gave neither team a meaningful edge — the picks roughly cancel out.',
 };
 const draftPillHTML = (draft, components) => {
-  if (!draft || draft.net === 0) return '';
-  const cls = draft.verdict === 'GOOD' ? 'draft-good' : draft.verdict === 'BAD' ? 'draft-bad' : 'draft-even';
-  const sign = draft.net >= 0 ? '+' : '';
-  // v4.22: engine already rounds draft.net to 1 decimal, but display-side rounding shouldn't
-  // depend on that staying true forever (or on a legacy cached entry predating it) — fmt1 here
-  // too, same as every other computed-delta render site.
-  const verdictLabel = draft.verdict === 'EVEN' ? 'DRAFT · EVEN' : `DRAFT · ${draft.verdict} ${sign}${fmt1(draft.net)}`;
-  const compStr = (components || []).filter(Boolean).join(' · ');
-  const fits = compStr && (verdictLabel.length + 3 + compStr.length) <= DRAFT_PILL_INLINE_BUDGET;
-  const compTail = compStr ? (fits ? compStr : 'details on hover') : '';
-  // v4.23: explanation sentence first, components (if any) after — replaces the old
-  // draft.tooltip/component-list-only title.
-  const explain = DRAFT_VERDICT_EXPLAIN[draft.verdict] || DRAFT_VERDICT_EXPLAIN.EVEN;
-  const title = compStr ? `${explain} ${compStr}` : explain;
-  const tail = compTail ? `<span class="draft-comp"> — ${esc(compTail)}</span>` : '';
-  return `<div class="draft-pill ${cls}" title="${esc(title)}"><span class="draft-verdict">${esc(verdictLabel)}</span>${tail}</div>`;
+  // v-resilience: real reproduced crash — a `draft` object present but missing/non-numeric `net`
+  // (e.g. a legacy or hand-edited cached entry that predates/doesn't match today's exact draft
+  // shape) throws inside fmt1's `.toFixed` below and, since draftPillHTML is called mid-template
+  // from matchupHTML's own return statement, takes the ENTIRE matchup table (and therefore the
+  // whole details render) down with it. `!draft || draft.net === 0` only guarded the "no draft
+  // data at all" / "nothing fired" cases, never a malformed one in between. Wrapped in safeRender
+  // (belt) on top of the explicit typeof guard (suspenders) so this degrades to "no DRAFT pill",
+  // same as the already-handled "no draft data" case, rather than crashing the row.
+  if (!draft || typeof draft.net !== 'number' || draft.net === 0) return '';
+  return safeRender(() => {
+    const cls = draft.verdict === 'GOOD' ? 'draft-good' : draft.verdict === 'BAD' ? 'draft-bad' : 'draft-even';
+    const sign = draft.net >= 0 ? '+' : '';
+    // v4.22: engine already rounds draft.net to 1 decimal, but display-side rounding shouldn't
+    // depend on that staying true forever (or on a legacy cached entry predating it) — fmt1 here
+    // too, same as every other computed-delta render site.
+    const verdictLabel = draft.verdict === 'EVEN' ? 'DRAFT · EVEN' : `DRAFT · ${draft.verdict} ${sign}${fmt1(draft.net)}`;
+    const compStr = (components || []).filter(Boolean).join(' · ');
+    const fits = compStr && (verdictLabel.length + 3 + compStr.length) <= DRAFT_PILL_INLINE_BUDGET;
+    const compTail = compStr ? (fits ? compStr : 'details on hover') : '';
+    // v4.23: explanation sentence first, components (if any) after — replaces the old
+    // draft.tooltip/component-list-only title.
+    const explain = DRAFT_VERDICT_EXPLAIN[draft.verdict] || DRAFT_VERDICT_EXPLAIN.EVEN;
+    const title = compStr ? `${explain} ${compStr}` : explain;
+    const tail = compTail ? `<span class="draft-comp"> — ${esc(compTail)}</span>` : '';
+    return `<div class="draft-pill ${cls}" title="${esc(title)}"><span class="draft-verdict">${esc(verdictLabel)}</span>${tail}</div>`;
+  });
 };
 let CTX = { riotId: '', region: 'euw' };
 
@@ -1194,6 +1204,16 @@ async function analyze(matchId, btn, i, attempt = 0) {
   if (isReanalyze && viewBtn) viewBtn.disabled = true;
   beginBusy();
   let sentKey = false;
+  // v-resilience: real bug (2026-09-05) — detailsHTML/matchupHTML now pull in three per-patch
+  // snapshot files (perfScore, lib/builds.mjs, the generalized role-pair synergy in
+  // lib/duosynergy.mjs) that a legacy/edge-case entry can fail to satisfy. Because the details
+  // render used to run FIRST, before the badge/one-liner/button updates below, a throw there
+  // (now defensively unlikely — see safeRender above — but never provably impossible for a
+  // *future* bad entry either) skipped every remaining success step, leaving the button stuck
+  // mid-spinner forever with no recovery. `succeeded`/`retried` below decouple the button's final
+  // state from detail-rendering entirely: it's set in a `finally` that runs no matter what throws
+  // above it, so a bug in ONE row's detail rendering can never again brick that row's button.
+  let succeeded = false, retried = false;
   try {
     const { headers: h, key: hKey } = hdrs(); sentKey = hKey;
     const r = await fetch(`${API}/api/analyze?riotId=${encodeURIComponent(rid)}&matchId=${encodeURIComponent(matchId)}&region=${CTX.region}${force}`, { headers: h });
@@ -1201,14 +1221,16 @@ async function analyze(matchId, btn, i, attempt = 0) {
     if (r.status === 409 && attempt < 15) { // shared analyzer busy — auto retry, shown on the button
       btn.innerHTML = `<span class="spinner"></span> #${attempt + 1}`;
       await new Promise(res => setTimeout(res, 20000));
+      retried = true; // the recursive call below owns this button's final state end-to-end
       return await analyze(matchId, btn, i, attempt + 1);
     }
     if (!r.ok) throw new Error(data.error || r.status);
     const g = data.entry;
+    succeeded = true;
     syncLastSearchAnalyzed(rid, matchId, g);
-    // Replace the details panel unconditionally — even if it was already open from a previous
-    // View, a re-analyze must overwrite the stale content with the fresh entry, not skip it.
-    document.getElementById('d' + i).innerHTML = detailsHTML(g, i, rid);
+    // Row-summary updates (badge/one-liner) come FIRST now, and are unconditional on the details
+    // panel below — cheap, and driven only by fields the engine has emitted for years, so they
+    // should never be held hostage by a crash in the much richer (and much newer) details render.
     const badgeEl = document.getElementById('b' + i);
     if (badgeEl) { badgeEl.className = 'badge ' + verdictCls(g.matchmaking, g.direction); badgeEl.textContent = verdictLabel(g.matchmaking, g.direction); badgeEl.title = verdictTitle(g.matchmaking, g.direction, g.verdictTooltip); }
     const oneEl = document.getElementById('o' + i);
@@ -1218,14 +1240,21 @@ async function analyze(matchId, btn, i, attempt = 0) {
       oneEl.innerHTML = esc(cleanOneLiner) + (wpCompact ? ` <span class="wp-compact" title="Estimated pre-game win chance BLUE–RED">${esc(wpCompact)}</span>` : '');
       oneEl.title = cleanOneLiner;
     }
-    if (viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; viewBtn.disabled = false; }
-    // v4.39: a row that started unanalyzed (plain "Analyze") is born with its ↻/Share buttons
-    // present but .action-hidden (see renderRows) — a bare first-time analyze() success is exactly
-    // the moment they become usable, so reveal them here instead of waiting for a future reload/
-    // re-render (loadHistory, a fresh search, etc.) to rebuild the row from g.cached=true. Cheap
-    // no-op for a row that was already cached (classList.remove on a class it never had).
-    document.getElementById('r' + i)?.classList.remove('action-hidden');
-    document.getElementById('s' + i)?.classList.remove('action-hidden');
+    // Full matchup/details panel — by far the riskiest render here (matchupHTML/detailsHTML pull
+    // in perfHTML/buildRevealHTML/the synergy chips for all 10 players). Its own try/catch means a
+    // render failure degrades to a plain "couldn't render" placeholder for THIS row's details only
+    // — it can no longer take the badge/one-liner above, or the button flip below, down with it.
+    // Replace unconditionally — even if it was already open from a previous View, a re-analyze
+    // must overwrite the stale content with the fresh entry, not skip it.
+    const detailsEl = document.getElementById('d' + i);
+    if (detailsEl) {
+      try {
+        detailsEl.innerHTML = detailsHTML(g, i, rid);
+      } catch (renderErr) {
+        console.error('[analyze] detailsHTML render failed for', matchId, renderErr);
+        detailsEl.innerHTML = '<div class="dim" style="padding:8px 4px">Could not render this game’s details — try re-analyzing.</div>';
+      }
+    }
     card.classList.add('open');
     $('#status').textContent = '';
     // A forced (re-)analysis can change what history shows for this game — most importantly, a
@@ -1255,7 +1284,16 @@ async function analyze(matchId, btn, i, attempt = 0) {
         const freshCard = freshKey && document.getElementById('g' + freshKey);
         const freshDetails = freshKey && document.getElementById('d' + freshKey);
         if (freshBtn && freshCard && freshDetails) {
-          freshDetails.innerHTML = detailsHTML(g, freshKey, rid);
+          // Same graceful-degrade contract as the primary details render above — this is a SECOND,
+          // independent call to detailsHTML (fresh DOM after loadHistory(0) replaced #hist), so it
+          // needs its own try/catch rather than relying on the outer one, which would otherwise
+          // wrongly undo the primary row's already-successful badge/one-liner/button update below.
+          try {
+            freshDetails.innerHTML = detailsHTML(g, freshKey, rid);
+          } catch (renderErr) {
+            console.error('[analyze] detailsHTML re-render (history mirror) failed for', matchId, renderErr);
+            freshDetails.innerHTML = '<div class="dim" style="padding:8px 4px">Could not render this game’s details — try re-analyzing.</div>';
+          }
           freshCard.classList.add('open');
           freshBtn.dataset.loaded = '1';
           freshBtn.textContent = '▴ Hide';
@@ -1264,10 +1302,45 @@ async function analyze(matchId, btn, i, attempt = 0) {
     }
   } catch (err) {
     if (!handleKeyError(err, sentKey)) $('#status').innerHTML = '❌ ' + esc(err.message);
-    if (!isReanalyze) { btn.textContent = 'Analyze'; btn.disabled = false; }
-    else if (viewBtn) viewBtn.disabled = false;
   } finally {
-    if (isReanalyze) { btn.innerHTML = prevIcon; btn.disabled = false; }
+    // v-resilience: the button's final state is decided HERE, unconditionally, instead of being
+    // scattered across the success path and the catch block above — so it can never again be
+    // skipped by a throw anywhere above (this row's details render, the history-mirror re-render,
+    // loadHistory itself) once the actual analysis (`succeeded`) is known to have gone through.
+    if (isReanalyze) {
+      // Unchanged from before: always restore the icon/re-enable on every unwind of a 409-retry
+      // recursion (including outer/"retried" frames) — each frame captured its OWN prevIcon at
+      // entry, so this cascades back to the true original icon by the time the outermost frame's
+      // finally runs last, exactly as it always has.
+      btn.innerHTML = prevIcon;
+      btn.disabled = false;
+      if (viewBtn) viewBtn.disabled = false;
+      // v4.39 (reanalyze icon also keeps the row's View button in sync — see the comment at the
+      // top of this function): only touch its loaded/label state on a genuine success — `succeeded`
+      // is this frame's own local, so an outer/retried frame (where it's still false) never
+      // clobbers the deepest frame's already-correct update.
+      if (succeeded && viewBtn) { viewBtn.dataset.loaded = '1'; viewBtn.textContent = '▴ Hide'; }
+    } else if (!retried) {
+      // `retried` (only meaningful for the plain View/Analyze button) skips this entirely for an
+      // outer frame that just recursed into a 409 retry — that recursive call's own finally is the
+      // one that gets to decide this button's fate, once it actually resolves. Without this guard,
+      // the outer frame's finally would run AFTER the inner one and wrongly stomp its result back
+      // to "Analyze" (succeeded is false in the outer frame's own scope, since it returned before
+      // ever reaching that far).
+      if (succeeded) {
+        btn.dataset.loaded = '1';
+        btn.textContent = '▴ Hide';
+        btn.disabled = false;
+        // v4.39: a row that started unanalyzed (plain "Analyze") is born with its ↻/Share buttons
+        // present but .action-hidden (see renderRows) — a bare first-time analyze() success is
+        // exactly the moment they become usable. Cheap no-op for an already-cached row.
+        document.getElementById('r' + i)?.classList.remove('action-hidden');
+        document.getElementById('s' + i)?.classList.remove('action-hidden');
+      } else {
+        btn.textContent = 'Analyze';
+        btn.disabled = false;
+      }
+    }
     endBusy();
   }
 }
@@ -1856,7 +1929,7 @@ const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" 
 // than sitting in the same line as either (see .perf-tag in style.css). Legacy cached entries
 // analyzed before this feature shipped have no perfScore field at all — render nothing rather
 // than a bogus "–/10", same convention as badgeHTML/rankTag above for missing data.
-const perfHTML = p => (typeof p?.perfScore === 'number') ? `<span class="perf-tag" title="In-game performance score — how well you actually played, independent of the pre-game fairness verdict">${p.perfScore.toFixed(1)}/10</span>` : '';
+const perfHTML = p => safeRender(() => (typeof p?.perfScore === 'number') ? `<span class="perf-tag" title="In-game performance score — how well you actually played, independent of the pre-game fairness verdict">${p.perfScore.toFixed(1)}/10</span>` : '');
 
 // v4.27: full-page background art — the searched player's most-played champion (across their
 // currently-listed games) as a Data Dragon splash, at low opacity behind everything (see
@@ -2118,15 +2191,21 @@ function champMetaTitle(champ) {
 // the engine's 100/200.
 const ROLE_ORDER = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
 function teamSynergyDelta(champA, posA, champB, posB) {
-  const aFirst = ROLE_ORDER.indexOf(posA) <= ROLE_ORDER.indexOf(posB);
-  const pairs = ROLE_PAIRS[aFirst ? `${posA}+${posB}` : `${posB}+${posA}`];
-  if (!pairs) return null;
-  const [firstChamp, secondChamp] = aFirst ? [champA, champB] : [champB, champA];
-  const pair = pairs[`${firstChamp}+${secondChamp}`];
-  if (!pair) return null;
-  const wrA = CHAMP_STATS[champA]?.wr, wrB = CHAMP_STATS[champB]?.wr;
-  if (wrA == null || wrB == null) return null;
-  return { delta: pair.wr - (wrA + wrB) / 2, wr: pair.wr, games: pair.games, champA, champB };
+  // v-resilience: this reads three per-patch snapshot files at once (ROLE_PAIRS, CHAMP_STATS) —
+  // a single malformed entry in either (e.g. a pair/wr value the refresh script wrote oddly for
+  // one of ~2000+ role-pair combinations) must degrade to "no synergy data for this pairing",
+  // never take the whole row/table down with it.
+  return safeRender(() => {
+    const aFirst = ROLE_ORDER.indexOf(posA) <= ROLE_ORDER.indexOf(posB);
+    const pairs = ROLE_PAIRS[aFirst ? `${posA}+${posB}` : `${posB}+${posA}`];
+    if (!pairs) return null;
+    const [firstChamp, secondChamp] = aFirst ? [champA, champB] : [champB, champA];
+    const pair = pairs[`${firstChamp}+${secondChamp}`];
+    if (!pair) return null;
+    const wrA = CHAMP_STATS[champA]?.wr, wrB = CHAMP_STATS[champB]?.wr;
+    if (wrA == null || wrB == null) return null;
+    return { delta: pair.wr - (wrA + wrB) / 2, wr: pair.wr, games: pair.games, champA, champB };
+  }, null);
 }
 // Backward-compat: the original ADC+SUPPORT-only helper, unchanged behavior — now just
 // teamSynergyDelta pinned to BOTTOM+UTILITY (ROLE_PAIRS's 'BOTTOM+UTILITY' map is the same data
@@ -2155,7 +2234,7 @@ const SYNERGY_PAIR_LABEL = {
   'MIDDLE+BOTTOM': 'mid+bot', 'MIDDLE+UTILITY': 'mid+supp', 'BOTTOM+UTILITY': 'bot',
 };
 function teamSynergyOf(allPlayers, team) {
-  return ROLE_PAIR_TYPES.map(([posA, posB]) => pairSynergyOf(allPlayers, team, posA, posB)).filter(Boolean);
+  return ROLE_PAIR_TYPES.map(([posA, posB]) => safeRender(() => pairSynergyOf(allPlayers, team, posA, posB), null)).filter(Boolean);
 }
 const BOT_SYNERGY_LANE_CAP = 4;
 const clampBotSynergy = delta => Math.max(-BOT_SYNERGY_LANE_CAP, Math.min(BOT_SYNERGY_LANE_CAP, delta));
@@ -2175,8 +2254,10 @@ function synergyByPos(synergies) {
 // a role can appear in up to 4 pair types (e.g. JUNGLE with TOP/MIDDLE/BOTTOM/UTILITY); showing
 // all of them on one row would clutter it, so only the most significant one renders.
 function bestSynergyFor(synergies, pos) {
-  const matches = synergies.filter(s => s.posA === pos || s.posB === pos);
-  return matches.reduce((best, s) => (!best || Math.abs(s.delta) > Math.abs(best.delta)) ? s : best, null);
+  return safeRender(() => {
+    const matches = (synergies || []).filter(s => s.posA === pos || s.posB === pos);
+    return matches.reduce((best, s) => (!best || Math.abs(s.delta) > Math.abs(best.delta)) ? s : best, null);
+  }, null);
 }
 // v4.22: shared "at most 1 decimal, no trailing .0" formatter — every display site that renders a
 // computed (not stored-integer) delta funnels through this, so a float tail like
@@ -2184,6 +2265,21 @@ function bestSynergyFor(synergies, pos) {
 // lane Favored column) can't happen anywhere. toFixed(1) rounds to one decimal as a string; the
 // trailing "/\.0$/" strip is purely cosmetic (a real +4.0% reads better as +4%, still exact).
 const fmt1 = v => v.toFixed(1).replace(/\.0$/, '');
+// v-resilience: shared "never let one row's fancy extra render abort the rest" guard — this
+// codebase's own stated rule everywhere else is "missing data -> no display, never a crash", but
+// perfHTML/buildRevealHTML/botSynergyChipHTML (and the teamSynergyOf/pairSynergyOf pipeline
+// feeding the last of those) only ever null-CHECK the shapes they expect; none of them are proof
+// against a genuinely malformed entry in the three per-patch snapshot files they read from
+// (lib/builds.mjs, lib/duosynergy.mjs, a legacy/edge-case perfScore) — a single bad champion/
+// role-pair entry there would otherwise throw synchronously and, since these are called from deep
+// inside matchupHTML/detailsHTML's template-literal construction, abort that ENTIRE row's render
+// (matchup table AND details tables, not just the one bad cell) with no visible trace beyond a
+// console error. Wrapping each of those three functions' own bodies here means a bad entry
+// degrades to "render nothing for that piece", exactly like a genuinely missing one already does,
+// no matter which future call site reaches it.
+function safeRender(fn, fallback = '') {
+  try { return fn(); } catch (e) { console.error('[render] degraded to fallback:', e); return fallback; }
+}
 // Chip for a lane row: "duo +2.4%" — green when the pairing clears +1% over the champs' own solo
 // winrates, red when it's -1% or worse, dim in the narrow band between (real, but not a strong
 // enough signal to call out visually). Games count formatted compactly (12k) — this can be a
@@ -2192,11 +2288,13 @@ const fmt1 = v => v.toFixed(1).replace(/\.0$/, '');
 // BOTTOM/UTILITY-only (adcChamp/suppChamp) to any role pair (champA/champB, in ROLE_ORDER order).
 function botSynergyChipHTML(synergy) {
   if (!synergy) return '';
-  const cls = synergy.delta >= 1 ? 'synergy-pos' : synergy.delta <= -1 ? 'synergy-neg' : 'synergy-dim';
-  const sign = synergy.delta >= 0 ? '+' : '';
-  const gamesLabel = synergy.games >= 1000 ? `${fmt1(synergy.games / 1000)}k` : `${synergy.games}`;
-  const title = `${synergy.champA}+${synergy.champB}: ${fmt1(synergy.wr)}% over ${gamesLabel} games — ${sign}${fmt1(synergy.delta)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
-  return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${fmt1(synergy.delta)}%</span>`;
+  return safeRender(() => {
+    const cls = synergy.delta >= 1 ? 'synergy-pos' : synergy.delta <= -1 ? 'synergy-neg' : 'synergy-dim';
+    const sign = synergy.delta >= 0 ? '+' : '';
+    const gamesLabel = synergy.games >= 1000 ? `${fmt1(synergy.games / 1000)}k` : `${synergy.games}`;
+    const title = `${synergy.champA}+${synergy.champB}: ${fmt1(synergy.wr)}% over ${gamesLabel} games — ${sign}${fmt1(synergy.delta)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
+    return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${fmt1(synergy.delta)}%</span>`;
+  });
 }
 
 // v4.33: "Recommended build" reveal — lib/builds.mjs's per-patch snapshot (deeplol.gg, real
@@ -2222,21 +2320,28 @@ function proExampleOf(champ, oppChamp) {
 }
 
 function buildRevealHTML(champ, pos, oppChamp, uid) {
-  const build = recommendedBuildOf(champ, pos);
-  if (!build) return '';
-  const items = build.items.join(' + ');
-  const boots = build.boots ? `, ${build.boots}` : '';
-  const skill = build.skillOrder?.length ? ` · skill ${build.skillOrder.join(' > ')}` : '';
-  const gamesLabel = build.games >= 1000 ? `${fmt1(build.games / 1000)}k` : `${build.games}`;
-  let panel = `<b>${esc(build.keystone)}</b> · ${esc(items)}${esc(boots)}${skill} · WR ${build.winRate}% (${gamesLabel} games, patch ${BUILDS_PATCH})`;
-  const example = proExampleOf(champ, oppChamp);
-  if (example) {
-    const headline = example.items[0] || build.items[0];
-    panel += `<br><span class="dim">Pro example: built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`;
-  }
-  const targetId = `bd-${uid}`;
-  return `<span class="chip build-h" data-target="${targetId}" title="Recommended build — click to expand">build</span>` +
-    `<div class="build-b" id="${targetId}" style="display:none">${panel}</div>`;
+  // v-resilience: recommendedBuildOf/proExampleOf only null-check the LOOKUP, not the shape of
+  // whatever lib/builds.mjs/lib/proExamples.mjs actually stored for this champ+role (e.g. a
+  // future refresh writing a non-array items list, or a missing winRate/games) — wrapped so a
+  // malformed entry for one champion degrades to "no build chip for this player", not a crash
+  // that takes the whole row's render down with it.
+  return safeRender(() => {
+    const build = recommendedBuildOf(champ, pos);
+    if (!build) return '';
+    const items = build.items.join(' + ');
+    const boots = build.boots ? `, ${build.boots}` : '';
+    const skill = build.skillOrder?.length ? ` · skill ${build.skillOrder.join(' > ')}` : '';
+    const gamesLabel = build.games >= 1000 ? `${fmt1(build.games / 1000)}k` : `${build.games}`;
+    let panel = `<b>${esc(build.keystone)}</b> · ${esc(items)}${esc(boots)}${skill} · WR ${build.winRate}% (${gamesLabel} games, patch ${BUILDS_PATCH})`;
+    const example = proExampleOf(champ, oppChamp);
+    if (example) {
+      const headline = example.items[0] || build.items[0];
+      panel += `<br><span class="dim">Pro example: built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`;
+    }
+    const targetId = `bd-${uid}`;
+    return `<span class="chip build-h" data-target="${targetId}" title="Recommended build — click to expand">build</span>` +
+      `<div class="build-b" id="${targetId}" style="display:none">${panel}</div>`;
+  });
 }
 
 // v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
@@ -2597,11 +2702,15 @@ function matchupHTML(g, rid, key = 'x') {
   {
     const fmt = v => `${v >= 0 ? '+' : ''}${fmt1(v)}%`;
     for (const [posA, posB] of ROLE_PAIR_TYPES) {
-      const label = SYNERGY_PAIR_LABEL[`${posA}+${posB}`];
-      const bluePair = blueSynergies.find(s => s.posA === posA && s.posB === posB);
-      const redPair = redSynergies.find(s => s.posA === posA && s.posB === posB);
-      if (!bluePair || !redPair) continue;
-      draftComponents.push(`${label} synergy ${fmt(bluePair.delta)} vs ${fmt(redPair.delta)}`);
+      // v-resilience: one malformed pair (e.g. a non-numeric delta) must only drop ITS OWN
+      // component line, never abort the rest of the DRAFT pill's component list.
+      safeRender(() => {
+        const label = SYNERGY_PAIR_LABEL[`${posA}+${posB}`];
+        const bluePair = blueSynergies.find(s => s.posA === posA && s.posB === posB);
+        const redPair = redSynergies.find(s => s.posA === posA && s.posB === posB);
+        if (!bluePair || !redPair) return;
+        draftComponents.push(`${label} synergy ${fmt(bluePair.delta)} vs ${fmt(redPair.delta)}`);
+      });
     }
   }
   return `<table class="matchup">
