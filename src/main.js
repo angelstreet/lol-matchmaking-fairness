@@ -1929,7 +1929,11 @@ const badgeHTML = p => p?.badge ? `<span class="badge-${p.badge.toLowerCase()}" 
 // than sitting in the same line as either (see .perf-tag in style.css). Legacy cached entries
 // analyzed before this feature shipped have no perfScore field at all — render nothing rather
 // than a bogus "–/10", same convention as badgeHTML/rankTag above for missing data.
-const perfHTML = p => safeRender(() => (typeof p?.perfScore === 'number') ? `<span class="perf-tag" title="In-game performance score — how well you actually played, independent of the pre-game fairness verdict">${p.perfScore.toFixed(1)}/10</span>` : '');
+const perfHTML = p => safeRender(() => {
+  if (typeof p?.perfScore !== 'number') return '';
+  const score = Number.isInteger(p.perfScore) ? p.perfScore : p.perfScore.toFixed(1);
+  return `<span class="perf-tag" title="In-game performance score — how well you actually played, independent of the pre-game fairness verdict">${score}/10</span>`;
+});
 
 // v4.27: full-page background art — the searched player's most-played champion (across their
 // currently-listed games) as a Data Dragon splash, at low opacity behind everything (see
@@ -2015,7 +2019,12 @@ function enrichDuos(g) {
 // oppChamp (matchup view only — the details tables don't pair opposing lanes, so they call this
 // without it and simply never show the countered chip there) drives the one chip that needs
 // opponent context: a known lane counter against them (see lib/counters.mjs).
-function chipsHTML(p, oppChamp) {
+// suppressDuo (v-duo-merge): true when the caller has already folded this player's queue-duo
+// signal into a combined "DUO ±N%" synergy chip elsewhere (see synergyChipHTML) — the plain DUO
+// chip built below would otherwise duplicate the word "duo" on the same row. Only the matchup
+// table's cellName ever passes true; the details tables call this with the default (false) since
+// they don't render a synergy chip to merge into.
+function chipsHTML(p, oppChamp, suppressDuo) {
   if (!p) return '';
   const c = [];
   // Every chip gets a semantic color — no grey/default chips. Neutral/informational facts
@@ -2051,7 +2060,7 @@ function chipsHTML(p, oppChamp) {
   if (p.flags?.includes('rusty')) c.push(['rusty', "Hasn't played this queue in 14+ days — recent form may be less predictive", 'flag-rusty']);
   if (p.flags?.includes('smurf')) c.push(['SMURF?', 'Low account level with a strong season winrate or recent KDA — likely outclasses their displayed rank', 'flag-smurf']);
   if (p.flags?.includes('afk-risk')) c.push(['AFK risk', 'A recent game ended in an early surrender for this player — possible AFK/DC pattern', 'flag-afk']);
-  if (p.duo) {
+  if (p.duo && !suppressDuo) {
     const tip = p.duoWith
       ? `Duo with ${p.duoWith} — ${p.duoRecord ? p.duoRecord + ' together in their last 5 shared games' : (p.duoShared != null ? p.duoShared + '/5 previous games together' : 'proven by shared pre-game matches')}`
       : 'Queued with a teammate — proven by shared pre-game matches';
@@ -2267,7 +2276,7 @@ function bestSynergyFor(synergies, pos) {
 const fmt1 = v => v.toFixed(1).replace(/\.0$/, '');
 // v-resilience: shared "never let one row's fancy extra render abort the rest" guard — this
 // codebase's own stated rule everywhere else is "missing data -> no display, never a crash", but
-// perfHTML/buildRevealHTML/botSynergyChipHTML (and the teamSynergyOf/pairSynergyOf pipeline
+// perfHTML/buildRevealHTML/synergyChipHTML (and the teamSynergyOf/pairSynergyOf pipeline
 // feeding the last of those) only ever null-CHECK the shapes they expect; none of them are proof
 // against a genuinely malformed entry in the three per-patch snapshot files they read from
 // (lib/builds.mjs, lib/duosynergy.mjs, a legacy/edge-case perfScore) — a single bad champion/
@@ -2280,21 +2289,40 @@ const fmt1 = v => v.toFixed(1).replace(/\.0$/, '');
 function safeRender(fn, fallback = '') {
   try { return fn(); } catch (e) { console.error('[render] degraded to fallback:', e); return fallback; }
 }
-// Chip for a lane row: "duo +2.4%" — green when the pairing clears +1% over the champs' own solo
-// winrates, red when it's -1% or worse, dim in the narrow band between (real, but not a strong
-// enough signal to call out visually). Games count formatted compactly (12k) — this can be a
-// small sample for off-meta pairings (lib/duosynergy.mjs's header explains why), so the raw count
-// is always in the tooltip for the reader to judge, never hidden. v-team-synergy: generalized from
-// BOTTOM/UTILITY-only (adcChamp/suppChamp) to any role pair (champA/champB, in ROLE_ORDER order).
-function botSynergyChipHTML(synergy) {
-  if (!synergy) return '';
+// Chip for a lane row: "top+jungle +2.4%" (or "DUO +2.4%" when it's ALSO a real queue duo — see
+// below) — green when the pairing clears +1% over the champs' own solo winrates, red when it's
+// -1% or worse, dim in the narrow band between (real, but not a strong enough signal to call out
+// visually). Games count formatted compactly (12k) — this can be a small sample for off-meta
+// pairings (lib/duosynergy.mjs's header explains why), so the raw count is always in the tooltip
+// for the reader to judge, never hidden. v-team-synergy: generalized from BOTTOM/UTILITY-only
+// (adcChamp/suppChamp) to any role pair (champA/champB, in ROLE_ORDER order).
+//
+// v-duo-merge: this used to hardcode the label "duo" for every pair type, which predates that
+// generalization and is misleading for a non-bot-lane pairing that never actually queued together
+// (a jungle+support synergy chip reading "duo" falsely implies they're partied). Now: when `player`
+// really is a queued duo with `partnerName` (player.duo && player.duoWith === partnerName), this
+// chip absorbs that signal too — one "DUO ±N%" chip, tooltip covering both facts — and the caller
+// must suppress chipsHTML's own plain DUO chip for that player (see suppressDuo above) so "DUO"
+// doesn't appear twice. Otherwise the chip is labeled by the actual role pair (SYNERGY_PAIR_LABEL)
+// instead of the ambiguous bare word "duo". Returns {html, merged} — `merged` tells the caller
+// whether to suppress chipsHTML's plain DUO chip for this player.
+function synergyChipHTML(synergy, player, partnerName) {
+  if (!synergy) return { html: '', merged: false };
   return safeRender(() => {
+    const isQueueDuo = !!(player?.duo && player.duoWith && partnerName && player.duoWith === partnerName);
     const cls = synergy.delta >= 1 ? 'synergy-pos' : synergy.delta <= -1 ? 'synergy-neg' : 'synergy-dim';
     const sign = synergy.delta >= 0 ? '+' : '';
     const gamesLabel = synergy.games >= 1000 ? `${fmt1(synergy.games / 1000)}k` : `${synergy.games}`;
-    const title = `${synergy.champA}+${synergy.champB}: ${fmt1(synergy.wr)}% over ${gamesLabel} games — ${sign}${fmt1(synergy.delta)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
-    return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${fmt1(synergy.delta)}%</span>`;
-  });
+    const synergyNote = `${synergy.champA}+${synergy.champB}: ${fmt1(synergy.wr)}% over ${gamesLabel} games — ${sign}${fmt1(synergy.delta)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
+    if (isQueueDuo) {
+      const duoNote = player.duoRecord ? `${player.duoRecord} together in their last 5 shared games` : (player.duoShared != null ? `${player.duoShared}/5 previous games together` : 'proven by shared pre-game matches');
+      const title = `Duo with ${partnerName} — ${duoNote}. ${synergyNote}`;
+      return { html: `<span class="chip flag-duo ${cls}" title="${esc(title)}">DUO ${sign}${fmt1(synergy.delta)}%</span>`, merged: true };
+    }
+    const pairKey = ROLE_ORDER.indexOf(synergy.posA) <= ROLE_ORDER.indexOf(synergy.posB) ? `${synergy.posA}+${synergy.posB}` : `${synergy.posB}+${synergy.posA}`;
+    const label = SYNERGY_PAIR_LABEL[pairKey] || 'pair';
+    return { html: `<span class="chip ${cls}" title="${esc(synergyNote)}">${label} ${sign}${fmt1(synergy.delta)}%</span>`, merged: false };
+  }, { html: '', merged: false });
 }
 
 // v4.33: "Recommended build" reveal — lib/builds.mjs's per-patch snapshot (deeplol.gg, real
@@ -2319,6 +2347,11 @@ function proExampleOf(champ, oppChamp) {
   return (PRO_EXAMPLES[champ] || []).find(ex => ex.opponent === oppChamp) || null;
 }
 
+// v-two-lines: returns {chip, panel} separately (was one concatenated string) so the caller
+// (cellName) can slot the small clickable "build" chip into the same chip row as the other
+// badges/flags instead of appending it as its own block after that row — the hidden expand panel
+// still renders as its own element wherever the caller puts it, since it's display:none by default
+// and only shown on click, so it doesn't count against the "2 visible lines per player" budget.
 function buildRevealHTML(champ, pos, oppChamp, uid) {
   // v-resilience: recommendedBuildOf/proExampleOf only null-check the LOOKUP, not the shape of
   // whatever lib/builds.mjs/lib/proExamples.mjs actually stored for this champ+role (e.g. a
@@ -2327,21 +2360,23 @@ function buildRevealHTML(champ, pos, oppChamp, uid) {
   // that takes the whole row's render down with it.
   return safeRender(() => {
     const build = recommendedBuildOf(champ, pos);
-    if (!build) return '';
+    if (!build) return { chip: '', panel: '' };
     const items = build.items.join(' + ');
     const boots = build.boots ? `, ${build.boots}` : '';
     const skill = build.skillOrder?.length ? ` · skill ${build.skillOrder.join(' > ')}` : '';
     const gamesLabel = build.games >= 1000 ? `${fmt1(build.games / 1000)}k` : `${build.games}`;
-    let panel = `<b>${esc(build.keystone)}</b> · ${esc(items)}${esc(boots)}${skill} · WR ${build.winRate}% (${gamesLabel} games, patch ${BUILDS_PATCH})`;
+    let panelBody = `<b>${esc(build.keystone)}</b> · ${esc(items)}${esc(boots)}${skill} · WR ${build.winRate}% (${gamesLabel} games, patch ${BUILDS_PATCH})`;
     const example = proExampleOf(champ, oppChamp);
     if (example) {
       const headline = example.items[0] || build.items[0];
-      panel += `<br><span class="dim">Pro example: built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`;
+      panelBody += `<br><span class="dim">Pro example: built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`;
     }
     const targetId = `bd-${uid}`;
-    return `<span class="chip build-h" data-target="${targetId}" title="Recommended build — click to expand">build</span>` +
-      `<div class="build-b" id="${targetId}" style="display:none">${panel}</div>`;
-  });
+    return {
+      chip: `<span class="chip build-h" data-target="${targetId}" title="Recommended build — click to expand">build</span>`,
+      panel: `<div class="build-b" id="${targetId}" style="display:none">${panelBody}</div>`,
+    };
+  }, { chip: '', panel: '' });
 }
 
 // v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
@@ -2561,17 +2596,23 @@ function matchupHTML(g, rid, key = 'x') {
   const redSynergyByPos = synergyByPos(redSynergies);
   const blueBotSynergy = blueSynergies.find(s => s.posA === 'BOTTOM' && s.posB === 'UTILITY') || null;
   const redBotSynergy = redSynergies.find(s => s.posA === 'BOTTOM' && s.posB === 'UTILITY') || null;
-  // Two lines per player: line one is #place + name + this game's KDA + bold GA (+ rank tag);
-  // line two is every chip (MVP/ACE leading, then flags/duo/streak/cs). v4.26: RED's line one now
-  // mirrors BLUE's around the table's center Favored column for symmetric left-right reading
-  // (user-specified exact order) — BLUE keeps place/name/kda/GA/rank left-to-right with the rank
-  // tag pushed to the cell's own far edge; RED clusters rank/place/GA/kda toward the CENTER
-  // (nearest the Favored column) and pushes the player NAME out to the table's outer edge instead
-  // — same "edge" flex-push mechanism (.p-cell-edge, see CSS), mirrored which element gets pushed.
-  // Lane-favor severity (favored/heavily favored) is NOT shown here — it's the Favored-column
-  // value's own tooltip below (laneVerdict), so it isn't duplicated per player. extraChip (v4.20):
-  // the bot synergy chip on BOTTOM/UTILITY rows, appended after the flag/duo/streak/cs chip group.
-  const cellName = (p, oppChamp, extraChip, side, role) => {
+  // Strictly two lines per player: line one is #place + name + this game's KDA + bold GA (+ rank
+  // tag + perf score, both right-aligned); line two is every chip (MVP/ACE leading, then flags/
+  // duo/synergy/build/streak/cs). v4.26: RED's line one mirrors BLUE's around the table's center
+  // Favored column for symmetric left-right reading (user-specified exact order) — BLUE keeps
+  // place/name/kda/GA/rank left-to-right with the rank tag pushed to the cell's own far edge; RED
+  // clusters rank/place/GA/kda toward the CENTER (nearest the Favored column) and pushes the
+  // player NAME out to the table's outer edge instead — same "edge" flex-push mechanism
+  // (.p-cell-edge, see CSS), mirrored which element gets pushed. v-two-lines: the perf score used
+  // to live in the chip row (pushing some players to a 3rd line once a build/synergy/flag chip
+  // group ran long) — it now rides along in whichever element already sits at .p-cell-edge for
+  // this side (rank tag on blue, player name on red), so it's always right-aligned on line 1
+  // without adding a new flex child. Lane-favor severity (favored/heavily favored) is NOT shown
+  // here — it's the Favored-column value's own tooltip below (laneVerdict), so it isn't duplicated
+  // per player. extraChip (v-duo-merge): the per-lane synergy chip (see synergyChipHTML) — may
+  // already be a merged "DUO ±N%" chip, in which case chipsHTML's own plain DUO chip for this
+  // player must be suppressed (mergedDuo) so "DUO" doesn't render twice.
+  const cellName = (p, oppChamp, extraChip, side, role, mergedDuo) => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
     const name = `<span class="pname">${nameLink(p.n)}</span>`;
@@ -2582,24 +2623,30 @@ function matchupHTML(g, rid, key = 'x') {
     // tag.
     const rt = rankTag(p.rank, p.wr, p.seasonGames);
     const rank = rt ? `<span class="rank-tag dim" title="${esc(rt.title)}">${esc(rt.label)}</span>` : '';
+    const perf = perfHTML(p);
     // v4.25/v4.26: the non-pushed content stays bundled in one inline span (p-main-info) so
     // .p-main can be a flex row without collapsing the plain-space joins between its tokens —
     // flexbox only treats non-whitespace text runs as their own anonymous item, so a bare " "
     // joiner between two sibling spans would otherwise vanish once the parent becomes
     // display:flex. Whichever single element is meant to sit at the cell's far edge (rank tag on
     // blue, player name on red) is wrapped in .p-cell-edge, the flex row's other child, pushed
-    // there via margin-left:auto.
+    // there via margin-left:auto — the perf score joins it there so it's right-aligned too.
     let main;
     if (side === 'red') {
       const cluster = [rank, place, ga, kda].filter(Boolean).join(' ');
-      main = `<span class="p-main-info">${cluster}</span><span class="p-cell-edge">${name}</span>`;
+      const edge = [perf, name].filter(Boolean).join(' ');
+      main = `<span class="p-main-info">${cluster}</span><span class="p-cell-edge">${edge}</span>`;
     } else {
       const info = [place, name, kda, ga].filter(Boolean).join(' ');
-      main = `<span class="p-main-info">${info}</span>` + (rank ? `<span class="p-cell-edge">${rank}</span>` : '');
+      const edge = [rank, perf].filter(Boolean).join(' ');
+      main = `<span class="p-main-info">${info}</span>` + (edge ? `<span class="p-cell-edge">${edge}</span>` : '');
     }
-    const chips = badgeHTML(p) + chipsHTML(p, oppChamp) + perfHTML(p) + (extraChip || '');
-    const buildReveal = role ? buildRevealHTML(p.champ, role, oppChamp, `${key}-${role}-${side}`) : '';
-    return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '') + buildReveal;
+    // v-two-lines: the "build" chip joins the rest of the chip group instead of being appended as
+    // its own block after it (the old 3rd-line bug) — its hidden expand panel still renders after
+    // everything, unaffected by the "2 visible lines" budget since it's display:none until clicked.
+    const build = role ? buildRevealHTML(p.champ, role, oppChamp, `${key}-${role}-${side}`) : { chip: '', panel: '' };
+    const chips = badgeHTML(p) + chipsHTML(p, oppChamp, mergedDuo) + (extraChip || '') + build.chip;
+    return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '') + build.panel;
   };
   // v4.22: draft-pill component strings collected as they're derived — countered-lane notes here
   // (as each lane is walked, reusing the exact bCounter/rCounter values already computed per-lane
@@ -2671,13 +2718,20 @@ function matchupHTML(g, rid, key = 'x') {
     // v-team-synergy: was BOTTOM/UTILITY-only (the bot-lane chip); now fires for ANY lane whose
     // player is part of a qualifying pair — bestSynergyFor picks the single most significant one
     // when a role could belong to more than one pair type (e.g. jungle with top/mid/bot/support).
-    const bSynergyChip = botSynergyChipHTML(bestSynergyFor(blueSynergies, role));
-    const rSynergyChip = botSynergyChipHTML(bestSynergyFor(redSynergies, role));
+    // v-duo-merge: partnerName resolves the OTHER player in that pairing (by their team+role) so
+    // synergyChipHTML can tell whether this pairing is the SAME two players as a real queue duo
+    // (merge into one "DUO ±N%" chip) or not (label by role pair instead of the bare word "duo").
+    const bSynergy = bestSynergyFor(blueSynergies, role);
+    const rSynergy = bestSynergyFor(redSynergies, role);
+    const bPartner = bSynergy ? by('blue', bSynergy.posA === role ? bSynergy.posB : bSynergy.posA) : null;
+    const rPartner = rSynergy ? by('red', rSynergy.posA === role ? rSynergy.posB : rSynergy.posA) : null;
+    const bSynergyInfo = synergyChipHTML(bSynergy, b, bPartner?.n);
+    const rSynergyInfo = synergyChipHTML(rSynergy, r, rPartner?.n);
     // v4.27: role icon (fixed TOP/JUNGLE/MID/ADC/SUPPORT order — ROLES/ROLE_ICON above) sits above
     // the lane's Favored verdict, in the same center column.
     const roleIcon = ROLE_ICON[role];
     const midCell = `<img class="role-icon" src="${roleIcon.url}" alt="${roleIcon.label}" title="${roleIcon.label}">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}`;
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip, 'blue', role)}</td><td class="mid-v">${midCell}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip, 'red', role)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyInfo.html, 'blue', role, bSynergyInfo.merged)}</td><td class="mid-v">${midCell}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyInfo.html, 'red', role, rSynergyInfo.merged)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
