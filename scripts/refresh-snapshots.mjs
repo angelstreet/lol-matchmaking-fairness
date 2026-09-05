@@ -49,6 +49,39 @@ const ADC_NAMES = ['Aphelios', 'Ashe', 'Caitlyn', 'Draven', 'Ezreal', 'Graves', 
   'Kalista', 'Kindred', "Kog'Maw", 'Lucian', 'Miss Fortune', 'Samira', 'Senna', 'Sivir', 'Smolder',
   'Tristana', 'Twitch', 'Varus', 'Vayne', 'Xayah', 'Yunara', 'Zeri', 'Akshan', 'Corki'];
 
+// v-team-synergy: curated pools for the other three roles, same "real, commonly-played picks"
+// philosophy as ADC_NAMES above (not exhaustive — a champion missing from a pool just means that
+// pool's page never gets fetched, so any pairing that would've involved it simply has no data,
+// same "missing -> no display" convention as everywhere else). Support isn't fetched directly at
+// all — see ROLE_ORDER/POS_TO_OPGG below for why.
+const TOP_NAMES = ['Aatrox', 'Camille', 'Darius', 'Fiora', 'Garen', 'Gnar', 'Gragas', 'Illaoi', 'Irelia',
+  'Jax', 'Jayce', 'Malphite', 'Mordekaiser', 'Nasus', 'Ornn', 'Renekton', 'Rumble', 'Sett', 'Shen', 'Volibear'];
+const JUNGLE_NAMES = ['Diana', 'Ekko', 'Elise', 'Evelynn', 'Fiddlesticks', 'Graves', 'Hecarim', 'Ivern',
+  'Karthus', 'Kayn', "Kha'Zix", 'Kindred', 'Lee Sin', 'Nidalee', 'Nocturne', 'Rengar', 'Sejuani', 'Shaco', 'Vi', 'Viego'];
+const MID_NAMES = ['Ahri', 'Akali', 'Annie', 'Azir', 'Cassiopeia', 'Diana', 'Ekko', 'Fizz', 'Galio', 'Irelia',
+  'Katarina', 'LeBlanc', 'Lux', 'Orianna', 'Syndra', 'Talon', 'Veigar', 'Viktor', 'Yasuo', 'Zed'];
+
+// v-team-synergy: fixed role ordering (same array lib/riot.mjs's fairness()/laneAdj and src/main.js's
+// matchupHTML already use for the 5 lane rows) — a role-pair type is always named "EarlierRole+
+// LaterRole" per this order, and (see fetchRoleSynergies below) only ever fetched from the EARLIER
+// role's own op.gg page, reading that page's section for the LATER role. This is what makes
+// BOTTOM+UTILITY (the pre-existing bot-lane pair) fall out of the exact same mechanism as every
+// other pair: it's fetched from the ADC page's own SUPPORT section, exactly as before — nothing
+// about the original ADC+SUPPORT fetch changes. UTILITY is last, so it never needs its own page
+// fetch at all — every pair it's part of is already covered by an earlier role's page (e.g.
+// BOTTOM+UTILITY comes from the ADC page, not a support page).
+const ROLE_ORDER = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+// op.gg's own URL-slug and in-JSON label for each role — distinct from Data Dragon/match-v5's
+// teamPosition strings (MIDDLE vs op.gg's "mid", BOTTOM vs op.gg's "adc").
+const POS_TO_OPGG = {
+  TOP: { slug: 'top', label: 'TOP' },
+  JUNGLE: { slug: 'jungle', label: 'JUNGLE' },
+  MIDDLE: { slug: 'mid', label: 'MID' },
+  BOTTOM: { slug: 'adc', label: 'ADC' },
+  UTILITY: { slug: 'support', label: 'SUPPORT' },
+};
+const ROLE_NAME_POOL = { TOP: TOP_NAMES, JUNGLE: JUNGLE_NAMES, MIDDLE: MID_NAMES, BOTTOM: ADC_NAMES };
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function fetchText(url) {
@@ -97,38 +130,83 @@ async function fetchChampStats(nameToId) {
   return { patch, STATS, matched: Object.keys(STATS).length, unmatched };
 }
 
-// ---- 3. per-ADC op.gg synergy page -> PAIRS ----
-const SUPPORT_ENTRY_RE = /\{\\"play\\":(\d+),\\"synergy_position\\":\\"SUPPORT\\",\\"win_rate\\":([\d.]+),\\"pick_rate\\":[\d.]+,\\"synergy_champion_name\\":\\"([^"\\]*?)\\"/g;
-async function fetchDuoSynergy(nameToId) {
-  const PAIRS = {};
+// ---- 3. per-champion op.gg synergy pages -> ROLE_PAIRS (generalized from the original per-ADC
+// bot-lane-only fetch) ----
+// Builds a role-label-parameterized version of the same regex the original ADC-only fetch used —
+// same exact JSON shape (op.gg embeds each synergy entry as an escaped-JSON object literal in the
+// page's RSC payload), just with SUPPORT swapped for whichever op.gg label (TOP/JUNGLE/MID/ADC/
+// SUPPORT) the caller is currently extracting. String.raw keeps the backslash-escaping identical
+// to the original regex literal instead of double-escaping it by hand.
+function entryRegexFor(opggLabel) {
+  return new RegExp(String.raw`\{\\"play\\":(\d+),\\"synergy_position\\":\\"${opggLabel}\\",\\"win_rate\\":([\d.]+),\\"pick_rate\\":[\d.]+,\\"synergy_champion_name\\":\\"([^"\\]*?)\\"`, 'g');
+}
+// Slices out one role's section from a fetched page (bounded by the next "synergy-section" marker,
+// same boundary the original fetch used) and returns its up-to-10 partner entries.
+function extractSection(html, opggSlug, opggLabel) {
+  const startIdx = html.indexOf(`synergyPosition\\":\\"${opggSlug}`);
+  if (startIdx === -1) return [];
+  const nextSection = html.indexOf('synergy-section', startIdx + 50);
+  const window = html.slice(startIdx, nextSection > -1 ? nextSection : startIdx + 20000);
+  const re = entryRegexFor(opggLabel);
+  const out = [];
+  let m;
+  while ((m = re.exec(window))) out.push({ games: +m[1], wr: +(Number(m[2]) * 100).toFixed(3), name: m[3] });
+  return out;
+}
+// One page fetch per curated champion (ADC_NAMES/TOP_NAMES/JUNGLE_NAMES/MID_NAMES) covers EVERY
+// role-pair that champion's role can form with a LATER role in ROLE_ORDER — e.g. a jungler's own
+// /synergies/jungle page has a MID section, a BOTTOM section, and a UTILITY section all in one
+// fetch, so JUNGLE+MIDDLE, JUNGLE+BOTTOM and JUNGLE+UTILITY never need their own separate fetch
+// loop. This is exactly how the original ADC-only fetch already worked (ADC page -> SUPPORT
+// section -> BOTTOM+UTILITY) — generalized to the other 3 fetchable roles instead of only BOTTOM.
+// A single champion's page fetch failing (network hiccup, an unexpectedly-missing page) no longer
+// aborts the whole run — logged and skipped, since this now costs ~90 fetches instead of 27 and
+// one bad slug shouldn't cost every other role-pair's data too.
+async function fetchRoleSynergies(nameToId) {
+  const ROLE_PAIRS = {};
   const missing = [];
   let patch = null;
-  for (const adcName of ADC_NAMES) {
-    const adcId = nameToId.get(adcName);
-    if (!adcId) { console.error(`  ADC not found in Data Dragon: ${adcName}`); continue; }
-    const slug = adcName.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const html = await fetchText(`https://op.gg/lol/champions/${slug}/synergies/adc`);
-    if (!patch) {
-      const vm = /images\/lol\/([\d.]+)\/champion\//.exec(html);
-      if (vm) patch = vm[1];
+  for (const role of ROLE_ORDER) {
+    const rolesAfter = ROLE_ORDER.slice(ROLE_ORDER.indexOf(role) + 1);
+    if (!rolesAfter.length) continue; // UTILITY: nothing later to pair with, no page needed
+    const pool = ROLE_NAME_POOL[role];
+    const { slug: ownSlug } = POS_TO_OPGG[role];
+    for (const champName of pool) {
+      const champId = nameToId.get(champName);
+      if (!champId) { console.error(`  ${role} champ not found in Data Dragon: ${champName}`); continue; }
+      const champSlug = champName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      let html;
+      try {
+        html = await fetchText(`https://op.gg/lol/champions/${champSlug}/synergies/${ownSlug}`);
+      } catch (e) {
+        console.error(`  FAILED ${champId} (${role}): ${e.message} — skipped`);
+        await sleep(300);
+        continue;
+      }
+      if (!patch) {
+        const vm = /images\/lol\/([\d.]+)\/champion\//.exec(html);
+        if (vm) patch = vm[1];
+      }
+      const counts = [];
+      for (const laterRole of rolesAfter) {
+        const { slug: laterSlug, label: laterLabel } = POS_TO_OPGG[laterRole];
+        const entries = extractSection(html, laterSlug, laterLabel);
+        counts.push(`${laterRole.toLowerCase()} ${entries.length}`);
+        const pairKey = `${role}+${laterRole}`;
+        const pairs = (ROLE_PAIRS[pairKey] ||= {});
+        for (const entry of entries) {
+          const partnerId = nameToId.get(entry.name);
+          if (!partnerId) { missing.push(`${pairKey}: ${champId}+${entry.name}`); continue; }
+          pairs[`${champId}+${partnerId}`] = { wr: entry.wr, games: entry.games };
+        }
+      }
+      console.error(`  ${champId} (${role}): ${counts.join(', ')}`);
+      await sleep(300); // polite pacing — op.gg has no documented rate limit, but no reason to hammer it
     }
-    const supportIdx = html.indexOf('synergyPosition\\":\\"support');
-    if (supportIdx === -1) { console.error(`  no support section for ${adcId}`); await sleep(300); continue; }
-    const nextSection = html.indexOf('synergy-section', supportIdx + 50);
-    const window = html.slice(supportIdx, nextSection > -1 ? nextSection : supportIdx + 20000);
-    SUPPORT_ENTRY_RE.lastIndex = 0;
-    let m, n = 0;
-    while ((m = SUPPORT_ENTRY_RE.exec(window))) {
-      const [, games, wr, suppName] = m;
-      const suppId = nameToId.get(suppName);
-      if (!suppId) { missing.push(`${adcId}+${suppName}`); continue; }
-      PAIRS[`${adcId}+${suppId}`] = { wr: +(Number(wr) * 100).toFixed(3), games: +games };
-      n++;
-    }
-    console.error(`  ${adcId}: ${n} support partners`);
-    await sleep(300); // polite pacing — op.gg has no documented rate limit, but no reason to hammer it
   }
-  return { patch, PAIRS, pairCount: Object.keys(PAIRS).length, missing };
+  const pairCounts = {};
+  for (const key of Object.keys(ROLE_PAIRS)) pairCounts[key] = Object.keys(ROLE_PAIRS[key]).length;
+  return { patch, ROLE_PAIRS, pairCounts, missing };
 }
 
 // ---- file templates (mirror the hand-written headers, patch/date/counts filled in) ----
@@ -169,33 +247,50 @@ ${body}
 `;
 }
 
-function duosynergyFile({ patch, date, PAIRS, pairCount }) {
-  const body = Object.keys(PAIRS).sort().map(key => {
-    const p = PAIRS[key];
-    return `  "${key}": { wr: ${p.wr}, games: ${p.games} },`;
+// v-team-synergy: ROLE_PAIRS generalizes what used to be a single ADC+SUPPORT-only PAIRS map into
+// one map per role-pair type (see ROLE_ORDER/POS_TO_OPGG in fetchRoleSynergies above for exactly
+// which page each type is sourced from). PAIRS is kept as a live alias to
+// ROLE_PAIRS['BOTTOM+UTILITY'] — the pre-existing bot-lane map, same key format, same content,
+// same source page — so every call site written against the original PAIRS export (lib/riot.mjs,
+// src/main.js) keeps working unchanged.
+function duosynergyFile({ patch, date, ROLE_PAIRS, pairCounts }) {
+  const pairTypeKeys = Object.keys(ROLE_PAIRS).sort();
+  const sections = pairTypeKeys.map(typeKey => {
+    const body = Object.keys(ROLE_PAIRS[typeKey]).sort().map(key => {
+      const p = ROLE_PAIRS[typeKey][key];
+      return `    "${key}": { wr: ${p.wr}, games: ${p.games} },`;
+    }).join('\n');
+    return `  "${typeKey}": {\n${body}\n  },`;
   }).join('\n');
-  return `// lib/duosynergy.mjs — static per-patch bot-lane (ADC+SUPPORT) duo synergy snapshot, same
-// philosophy as lib/counters.mjs and lib/champstats.mjs: a curated, community-editable data file
-// rather than a live API call.
+  const countsLine = pairTypeKeys.map(k => `${k} ${pairCounts[k]}`).join(', ');
+  return `// lib/duosynergy.mjs — static per-patch role-pair duo synergy snapshot, same philosophy as
+// lib/counters.mjs and lib/champstats.mjs: a curated, community-editable data file rather than a
+// live API call.
 //
-// Source: https://op.gg/lol/champions/{champ}/synergies/adc — each ADC's own page (support-role
-// section) lists their top-10 support partners by play count, with pair winrate + games. Fetched
-// ${date} via scripts/refresh-snapshots.mjs, for the 27 champions that are actually played
-// bot-lane ADC in practice (Data Dragon's "Marksman" tag also includes off-role picks like
-// Azir/Jayce/Kayle/Quinn/Teemo/TwistedFate that go mid/top, deliberately excluded here). One page
-// fetch per ADC — this data isn't in a single aggregate table the way champstats.mjs's
-// champion-stats page was, since synergy is inherently pairwise.
+// Source: https://op.gg/lol/champions/{champ}/synergies/{role} — each champion's own per-role page
+// lists, for every OTHER role, its top-10 partners in that role by play count (pair winrate +
+// games). Fetched ${date} via scripts/refresh-snapshots.mjs. One page fetch per curated champion
+// (ADC_NAMES/TOP_NAMES/JUNGLE_NAMES/MID_NAMES in the script) covers every role-pair type that
+// role can form with a LATER role in ROLE_ORDER (TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY) — e.g. a
+// jungler's own /synergies/jungle page has MID/BOTTOM/UTILITY sections all in one fetch, so
+// UTILITY never needs its own page fetch at all (everything it pairs with is sourced from the
+// earlier role's page instead). This is exactly how the original ADC-only fetch already worked
+// (ADC page's SUPPORT section -> BOTTOM+UTILITY) generalized to the other fetchable roles.
 // Patch: ${patch} (same source as champstats.mjs, read from the embedded data's own image URLs).
 //
-// Keyed "Adc+Supp" using match-v5's internal championName for both halves (cross-joined against
-// Data Dragon's champion.json exactly like champstats.mjs — including the same Jade_-prefix
-// pseudo-champion filter: Data Dragon lists 60 alternate-universe duplicate entries sharing a
-// real champion's display name, e.g. both "Ezreal" and "Jade_Ezreal" have name="Ezreal"; excluded
-// by their tell, numeric key >= 10000, before building the name-lookup).
+// ROLE_PAIRS is keyed by role-pair type ("EarlierRole+LaterRole", per ROLE_ORDER — e.g.
+// "JUNGLE+MIDDLE"), each value a map keyed "EarlierChamp+LaterChamp" using match-v5's internal
+// championName for both halves (cross-joined against Data Dragon's champion.json exactly like
+// champstats.mjs — including the same Jade_-prefix pseudo-champion filter: Data Dragon lists 60
+// alternate-universe duplicate entries sharing a real champion's display name, e.g. both "Ezreal"
+// and "Jade_Ezreal" have name="Ezreal"; excluded by their tell, numeric key >= 10000, before
+// building the name-lookup). PAIRS is a plain alias for ROLE_PAIRS['BOTTOM+UTILITY'] — the
+// original bot-lane (ADC+SUPPORT) map, unchanged shape — kept so every pre-existing call site
+// (lib/riot.mjs, src/main.js) still works without modification.
 //
-// Coverage is inherently a top-10-per-ADC list, not exhaustive — ${pairCount} pairs across 27
-// ADCs. A pairing missing here just means no synergy chip/tag renders and no scoring adjustment
-// applies for that lane — same "missing data -> no display, never a fabricated number" rule as
+// Coverage is inherently a top-10-per-champion-per-role list, not exhaustive — ${countsLine} pairs.
+// A pairing missing here just means no synergy chip/tag renders and no scoring adjustment applies
+// for that pairing — same "missing data -> no display, never a fabricated number" rule as
 // champstats.mjs.
 //
 // \`games\` is included specifically so a low-sample pair isn't presented with false confidence:
@@ -211,9 +306,11 @@ function duosynergyFile({ patch, date, PAIRS, pairCount }) {
 // \`node scripts/refresh-snapshots.mjs\` to regenerate both files from op.gg's current data.
 export const PATCH = '${patch}';
 
-export const PAIRS = {
-${body}
+export const ROLE_PAIRS = {
+${sections}
 };
+
+export const PAIRS = ROLE_PAIRS['BOTTOM+UTILITY'];
 `;
 }
 
@@ -247,11 +344,12 @@ async function main() {
   const champStats = await fetchChampStats(nameToId);
   console.error(`  patch ${champStats.patch}: ${champStats.matched} matched, ${champStats.unmatched.length} unmatched (${champStats.unmatched.join(', ')})`);
 
-  console.error('Fetching op.gg per-ADC bot-lane synergy pages (27 ADCs)...');
-  const duoSynergy = await fetchDuoSynergy(nameToId);
-  console.error(`  patch ${duoSynergy.patch}: ${duoSynergy.pairCount} pairs, ${duoSynergy.missing.length} unmatched support names`);
-  if (duoSynergy.patch && champStats.patch && duoSynergy.patch !== champStats.patch) {
-    console.error(`  WARNING: synergy pages report patch ${duoSynergy.patch}, champion-stats page reports ${champStats.patch} — using ${champStats.patch} for both file headers`);
+  console.error('Fetching op.gg per-champion role-pair synergy pages (TOP/JUNGLE/MIDDLE/BOTTOM)...');
+  const roleSynergy = await fetchRoleSynergies(nameToId);
+  const totalPairs = Object.values(roleSynergy.pairCounts).reduce((a, b) => a + b, 0);
+  console.error(`  patch ${roleSynergy.patch}: ${totalPairs} pairs across ${Object.keys(roleSynergy.pairCounts).length} role-pair types (${roleSynergy.missing.length} unmatched partner names)`);
+  if (roleSynergy.patch && champStats.patch && roleSynergy.patch !== champStats.patch) {
+    console.error(`  WARNING: synergy pages report patch ${roleSynergy.patch}, champion-stats page reports ${champStats.patch} — using ${champStats.patch} for both file headers`);
   }
   const patch = champStats.patch;
   if (!patch) { console.error('FATAL: could not determine patch from op.gg — aborting without writing anything'); process.exit(1); }
@@ -259,17 +357,22 @@ async function main() {
   // ---- diff against what's currently in the repo (import BEFORE any overwrite) ----
   const oldChampstats = await import(pathToFileURL(CHAMPSTATS_PATH).href);
   const oldDuosynergy = await import(pathToFileURL(DUOSYNERGY_PATH).href);
+  // Legacy files (pre-team-synergy) only ever exported PAIRS, not ROLE_PAIRS — treat that as a
+  // single-entry ROLE_PAIRS so the diff below still works against an old-shape file.
+  const oldRolePairs = oldDuosynergy.ROLE_PAIRS || { 'BOTTOM+UTILITY': oldDuosynergy.PAIRS };
 
   console.log('\n=== REFRESH SUMMARY ===');
   console.log(`patch: ${oldChampstats.PATCH} -> ${patch}`);
   diffCounts('champstats champs', Object.keys(oldChampstats.STATS).length, champStats.matched);
-  diffCounts('duosynergy pairs', Object.keys(oldDuosynergy.PAIRS).length, duoSynergy.pairCount);
+  for (const typeKey of Object.keys(roleSynergy.pairCounts).sort()) {
+    diffCounts(`duosynergy ${typeKey} pairs`, Object.keys(oldRolePairs[typeKey] || {}).length, roleSynergy.pairCounts[typeKey]);
+  }
   topMovers('champstats wr', oldChampstats.STATS, champStats.STATS, s => s.wr, id => id);
-  topMovers('duosynergy pair wr', oldDuosynergy.PAIRS, duoSynergy.PAIRS, p => p.wr, key => key);
+  topMovers('duosynergy BOTTOM+UTILITY pair wr', oldRolePairs['BOTTOM+UTILITY'] || {}, roleSynergy.ROLE_PAIRS['BOTTOM+UTILITY'] || {}, p => p.wr, key => key);
 
   const date = today();
   const champstatsOut = champstatsFile({ patch, date, STATS: champStats.STATS, matched: champStats.matched, totalChamps });
-  const duosynergyOut = duosynergyFile({ patch, date, PAIRS: duoSynergy.PAIRS, pairCount: duoSynergy.pairCount });
+  const duosynergyOut = duosynergyFile({ patch, date, ROLE_PAIRS: roleSynergy.ROLE_PAIRS, pairCounts: roleSynergy.pairCounts });
 
   if (DRY_RUN) {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'refresh-snapshots-dryrun-'));

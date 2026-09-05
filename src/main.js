@@ -1,7 +1,7 @@
 import './style.css';
 import { netCounter } from '../lib/counters.mjs';
 import { STATS as CHAMP_STATS, PATCH as CHAMP_STATS_PATCH } from '../lib/champstats.mjs';
-import { PAIRS as DUO_PAIRS, PATCH as DUO_SYNERGY_PATCH } from '../lib/duosynergy.mjs';
+import { ROLE_PAIRS, PATCH as DUO_SYNERGY_PATCH } from '../lib/duosynergy.mjs';
 
 // Same-origin API in production (Vercel functions); Vite proxies /api in dev.
 const API = import.meta.env.VITE_API_URL || '';
@@ -2106,44 +2106,94 @@ function champMetaTitle(champ) {
   return `${champ} — WR ${s.wr}% · pick ${s.pick}% · ban ${s.ban}% (patch ${CHAMP_STATS_PATCH})`;
 }
 
-// v4.20: mirrors lib/riot.mjs's botSynergyDelta/botSynergyOf — bot-lane (ADC+SUPPORT) duo
-// synergy from lib/duosynergy.mjs's per-patch snapshot, net of each champ's own solo winrate
-// (lib/champstats.mjs) so what's left is specifically "does this PAIRING work". Returns null
-// (not 0) when the pair or either champ's solo WR is missing — a missing pair means no data, not
+// v-team-synergy: mirrors lib/riot.mjs's generalized teamSynergyDelta/pairSynergyOf/teamSynergyOf
+// — v4.20's bot-lane (ADC+SUPPORT)-only duo synergy, extended to any role-pair op.gg publishes
+// data for (lib/duosynergy.mjs's ROLE_PAIRS — see its header for which page each type is sourced
+// from), net of each champ's own solo winrate (lib/champstats.mjs) so what's left is specifically
+// "does this PAIRING work". Returns null (not 0) when the role-pair type has no data, the pair
+// itself is missing, or either champ's solo WR is missing — a missing pair means no data, not
 // confirmed-neutral synergy. allPlayers/team here use this app's 'blue'/'red' team labels, not
 // the engine's 100/200.
-function botSynergyDelta(adcChamp, suppChamp) {
-  const pair = DUO_PAIRS[`${adcChamp}+${suppChamp}`];
+const ROLE_ORDER = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+function teamSynergyDelta(champA, posA, champB, posB) {
+  const aFirst = ROLE_ORDER.indexOf(posA) <= ROLE_ORDER.indexOf(posB);
+  const pairs = ROLE_PAIRS[aFirst ? `${posA}+${posB}` : `${posB}+${posA}`];
+  if (!pairs) return null;
+  const [firstChamp, secondChamp] = aFirst ? [champA, champB] : [champB, champA];
+  const pair = pairs[`${firstChamp}+${secondChamp}`];
   if (!pair) return null;
-  const adcWr = CHAMP_STATS[adcChamp]?.wr, suppWr = CHAMP_STATS[suppChamp]?.wr;
-  if (adcWr == null || suppWr == null) return null;
-  return { delta: pair.wr - (adcWr + suppWr) / 2, wr: pair.wr, games: pair.games, adcChamp, suppChamp };
+  const wrA = CHAMP_STATS[champA]?.wr, wrB = CHAMP_STATS[champB]?.wr;
+  if (wrA == null || wrB == null) return null;
+  return { delta: pair.wr - (wrA + wrB) / 2, wr: pair.wr, games: pair.games, champA, champB };
+}
+// Backward-compat: the original ADC+SUPPORT-only helper, unchanged behavior — now just
+// teamSynergyDelta pinned to BOTTOM+UTILITY (ROLE_PAIRS's 'BOTTOM+UTILITY' map is the same data
+// lib/duosynergy.mjs's PAIRS export aliases to).
+function botSynergyDelta(adcChamp, suppChamp) {
+  return teamSynergyDelta(adcChamp, 'BOTTOM', suppChamp, 'UTILITY');
+}
+function pairSynergyOf(allPlayers, team, posA, posB) {
+  const a = allPlayers?.find(p => p.team === team && p.pos === posA);
+  const b = allPlayers?.find(p => p.team === team && p.pos === posB);
+  if (!a || !b) return null;
+  const syn = teamSynergyDelta(a.champ, posA, b.champ, posB);
+  return syn ? { posA, posB, ...syn } : null;
 }
 function botSynergyOf(allPlayers, team) {
-  const adc = allPlayers?.find(p => p.team === team && p.pos === 'BOTTOM');
-  const supp = allPlayers?.find(p => p.team === team && p.pos === 'UTILITY');
-  if (!adc || !supp) return null;
-  return botSynergyDelta(adc.champ, supp.champ);
+  return pairSynergyOf(allPlayers, team, 'BOTTOM', 'UTILITY');
+}
+// Every role-pair type op.gg publishes data for (ROLE_ORDER above, each role paired with every
+// LATER role — TOP+JUNGLE, TOP+MIDDLE, ..., ending at BOTTOM+UTILITY, the original pair).
+const ROLE_PAIR_TYPES = ROLE_ORDER.flatMap((posA, i) => ROLE_ORDER.slice(i + 1).map(posB => [posA, posB]));
+// Short labels for the DRAFT pill's component text ("jungle+mid synergy +2.1% vs -0.8%"), mirrors
+// lib/riot.mjs's SYNERGY_PAIR_LABEL. 'bot' alone (not 'bot+supp') keeps the original v4.22 wording.
+const SYNERGY_PAIR_LABEL = {
+  'TOP+JUNGLE': 'top+jungle', 'TOP+MIDDLE': 'top+mid', 'TOP+BOTTOM': 'top+bot', 'TOP+UTILITY': 'top+supp',
+  'JUNGLE+MIDDLE': 'jungle+mid', 'JUNGLE+BOTTOM': 'jungle+bot', 'JUNGLE+UTILITY': 'jungle+supp',
+  'MIDDLE+BOTTOM': 'mid+bot', 'MIDDLE+UTILITY': 'mid+supp', 'BOTTOM+UTILITY': 'bot',
+};
+function teamSynergyOf(allPlayers, team) {
+  return ROLE_PAIR_TYPES.map(([posA, posB]) => pairSynergyOf(allPlayers, team, posA, posB)).filter(Boolean);
 }
 const BOT_SYNERGY_LANE_CAP = 4;
 const clampBotSynergy = delta => Math.max(-BOT_SYNERGY_LANE_CAP, Math.min(BOT_SYNERGY_LANE_CAP, delta));
+// Per-lane clamped synergy contribution — mirrors lib/riot.mjs's synergyByPos: every qualifying
+// pair a lane's player is part of adds its (individually capped) delta to that lane, generalized
+// from the old BOTTOM/UTILITY-only special case.
+function synergyByPos(synergies) {
+  const m = {};
+  for (const s of synergies) {
+    const c = clampBotSynergy(s.delta);
+    m[s.posA] = (m[s.posA] || 0) + c;
+    m[s.posB] = (m[s.posB] || 0) + c;
+  }
+  return m;
+}
+// Best (largest-magnitude) qualifying pair a given lane position is part of, for that row's chip —
+// a role can appear in up to 4 pair types (e.g. JUNGLE with TOP/MIDDLE/BOTTOM/UTILITY); showing
+// all of them on one row would clutter it, so only the most significant one renders.
+function bestSynergyFor(synergies, pos) {
+  const matches = synergies.filter(s => s.posA === pos || s.posB === pos);
+  return matches.reduce((best, s) => (!best || Math.abs(s.delta) > Math.abs(best.delta)) ? s : best, null);
+}
 // v4.22: shared "at most 1 decimal, no trailing .0" formatter — every display site that renders a
 // computed (not stored-integer) delta funnels through this, so a float tail like
 // "6.437000000000012" (real bug, rank-gap/bot-synergy fractional deltas leaking straight into the
 // lane Favored column) can't happen anywhere. toFixed(1) rounds to one decimal as a string; the
 // trailing "/\.0$/" strip is purely cosmetic (a real +4.0% reads better as +4%, still exact).
 const fmt1 = v => v.toFixed(1).replace(/\.0$/, '');
-// Chip for the BOTTOM/UTILITY rows: "duo +2.4%" — green when the pairing clears +1% over the
-// champs' own solo winrates, red when it's -1% or worse, dim in the narrow band between (real,
-// but not a strong enough signal to call out visually). Games count formatted compactly (12k) —
-// this can be a small sample for off-meta ADCs (lib/duosynergy.mjs's header explains why), so the
-// raw count is always in the tooltip for the reader to judge, never hidden.
+// Chip for a lane row: "duo +2.4%" — green when the pairing clears +1% over the champs' own solo
+// winrates, red when it's -1% or worse, dim in the narrow band between (real, but not a strong
+// enough signal to call out visually). Games count formatted compactly (12k) — this can be a
+// small sample for off-meta pairings (lib/duosynergy.mjs's header explains why), so the raw count
+// is always in the tooltip for the reader to judge, never hidden. v-team-synergy: generalized from
+// BOTTOM/UTILITY-only (adcChamp/suppChamp) to any role pair (champA/champB, in ROLE_ORDER order).
 function botSynergyChipHTML(synergy) {
   if (!synergy) return '';
   const cls = synergy.delta >= 1 ? 'synergy-pos' : synergy.delta <= -1 ? 'synergy-neg' : 'synergy-dim';
   const sign = synergy.delta >= 0 ? '+' : '';
   const gamesLabel = synergy.games >= 1000 ? `${fmt1(synergy.games / 1000)}k` : `${synergy.games}`;
-  const title = `${synergy.adcChamp}+${synergy.suppChamp}: ${fmt1(synergy.wr)}% over ${gamesLabel} games — ${sign}${fmt1(synergy.delta)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
+  const title = `${synergy.champA}+${synergy.champB}: ${fmt1(synergy.wr)}% over ${gamesLabel} games — ${sign}${fmt1(synergy.delta)}% vs their solo winrates (patch ${DUO_SYNERGY_PATCH})`;
   return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${fmt1(synergy.delta)}%</span>`;
 }
 
@@ -2354,11 +2404,16 @@ function laneFavor(a, b, skipEvenSide) {
 function matchupHTML(g, rid) {
   const meName = (rid || CTX.riotId).replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
-  // v4.20: one bot-lane synergy value per TEAM (its BOTTOM+UTILITY champion pair), computed once
-  // and reused for both of that team's bot-lane rows (the chip shown on each, and the lane-level
-  // GA adjustment below) and the TEAM footer's side-by-side comparison.
-  const blueBotSynergy = botSynergyOf(g.players, 'blue');
-  const redBotSynergy = botSynergyOf(g.players, 'red');
+  // v-team-synergy: every qualifying role-pair synergy per TEAM (generalized from v4.20's
+  // BOTTOM+UTILITY-only value), computed once and reused for each lane row's chip and GA
+  // adjustment below, plus the TEAM footer's bot-lane comparison. blueBotSynergy/redBotSynergy
+  // (BOTTOM+UTILITY only) kept for the footer, which stays bot-lane-specific.
+  const blueSynergies = teamSynergyOf(g.players, 'blue');
+  const redSynergies = teamSynergyOf(g.players, 'red');
+  const blueSynergyByPos = synergyByPos(blueSynergies);
+  const redSynergyByPos = synergyByPos(redSynergies);
+  const blueBotSynergy = blueSynergies.find(s => s.posA === 'BOTTOM' && s.posB === 'UTILITY') || null;
+  const redBotSynergy = redSynergies.find(s => s.posA === 'BOTTOM' && s.posB === 'UTILITY') || null;
   // Two lines per player: line one is #place + name + this game's KDA + bold GA (+ rank tag);
   // line two is every chip (MVP/ACE leading, then flags/duo/streak/cs). v4.26: RED's line one now
   // mirrors BLUE's around the table's center Favored column for symmetric left-right reading
@@ -2426,12 +2481,11 @@ function matchupHTML(g, rid) {
     // diffed below) carries the term exactly once, same as the engine's delta computation.
     let bAdj = bPreDuo != null ? bPreDuo + duoAdjOf(b, g.players, bPreDuo, rPreDuo) + rankGapAdj(b.rank, r?.rank) : null;
     let rAdj = rPreDuo != null ? rPreDuo + duoAdjOf(r, g.players, rPreDuo, bPreDuo) : null;
-    // v4.20: bot-lane duo synergy — each side's own (capped) value added to both its BOTTOM and
-    // UTILITY lane adjustments, mirroring lib/riot.mjs's laneAdj exactly.
-    if (role === 'BOTTOM' || role === 'UTILITY') {
-      if (bAdj != null && blueBotSynergy) bAdj += clampBotSynergy(blueBotSynergy.delta);
-      if (rAdj != null && redBotSynergy) rAdj += clampBotSynergy(redBotSynergy.delta);
-    }
+    // v-team-synergy: team synergy — each side's own (capped) value for every qualifying pair this
+    // lane's player is part of, added to the lane adjustment, mirroring lib/riot.mjs's laneAdj
+    // exactly. Generalized from the old BOTTOM/UTILITY-only special case via synergyByPos.
+    if (bAdj != null) bAdj += blueSynergyByPos[role] || 0;
+    if (rAdj != null) rAdj += redSynergyByPos[role] || 0;
     // v4.9: a lane where EXACTLY one side carries autofill risk (bRisk/rRisk above, smurf-exempt
     // as always) must never read EVEN — that side has an inherent edge even if the risk-adjusted
     // numbers happen to land close. skipEvenSide names the non-autofilled side, used as the
@@ -2466,9 +2520,11 @@ function matchupHTML(g, rid) {
       const iconUrl = `https://ddragon.leagueoflegends.com/cdn/${CHAMP_STATS_PATCH}/img/champion/${encodeURIComponent(p.champ)}.png`;
       return `<img class="${cls}" src="${iconUrl}" alt="${esc(p.champ)}" title="${esc(title)}">`;
     };
-    const isBotRow = role === 'BOTTOM' || role === 'UTILITY';
-    const bSynergyChip = isBotRow ? botSynergyChipHTML(blueBotSynergy) : '';
-    const rSynergyChip = isBotRow ? botSynergyChipHTML(redBotSynergy) : '';
+    // v-team-synergy: was BOTTOM/UTILITY-only (the bot-lane chip); now fires for ANY lane whose
+    // player is part of a qualifying pair — bestSynergyFor picks the single most significant one
+    // when a role could belong to more than one pair type (e.g. jungle with top/mid/bot/support).
+    const bSynergyChip = botSynergyChipHTML(bestSynergyFor(blueSynergies, role));
+    const rSynergyChip = botSynergyChipHTML(bestSynergyFor(redSynergies, role));
     // v4.27: role icon (fixed TOP/JUNGLE/MID/ADC/SUPPORT order — ROLES/ROLE_ICON above) sits above
     // the lane's Favored verdict, in the same center column.
     const roleIcon = ROLE_ICON[role];
@@ -2491,13 +2547,19 @@ function matchupHTML(g, rid) {
     if (autofillN > 0) tags.push(`<span class="af-count" title="${autofillN} autofilled player${autofillN === 1 ? '' : 's'} on this team — off-role risk, weighed into the net">${autofillN} autofill</span>`);
     return `<span title="65% team average + 35% average of the top 2 GAs">team GA</span> ${teamGa ?? '–'}` + (tags.length ? ` (${tags.join(' · ')})` : '');
   };
-  // v4.22: side-by-side bot-synergy comparison folds into the merged DRAFT pill's inline
-  // component list below (was its own standalone line — see draftPillHTML's doc comment) — only
-  // added when BOTH teams have data, since a one-sided "+2.4% vs no data" reads as a false
-  // equivalence.
-  if (blueBotSynergy && redBotSynergy) {
+  // v4.22/v-team-synergy: side-by-side synergy comparisons fold into the merged DRAFT pill's
+  // inline component list below (was its own standalone bot-lane-only line — see draftPillHTML's
+  // doc comment) — generalized to loop over every role-pair type, only added when BOTH teams have
+  // data for that specific type, since a one-sided "+2.4% vs no data" reads as a false equivalence.
+  {
     const fmt = v => `${v >= 0 ? '+' : ''}${fmt1(v)}%`;
-    draftComponents.push(`bot synergy ${fmt(blueBotSynergy.delta)} vs ${fmt(redBotSynergy.delta)}`);
+    for (const [posA, posB] of ROLE_PAIR_TYPES) {
+      const label = SYNERGY_PAIR_LABEL[`${posA}+${posB}`];
+      const bluePair = blueSynergies.find(s => s.posA === posA && s.posB === posB);
+      const redPair = redSynergies.find(s => s.posA === posA && s.posB === posB);
+      if (!bluePair || !redPair) continue;
+      draftComponents.push(`${label} synergy ${fmt(bluePair.delta)} vs ${fmt(redPair.delta)}`);
+    }
   }
   return `<table class="matchup">
     <tr><th class="champ-c"></th><th><span class="tm-blue">BLUE</span>${g.userTeam === 'blue' ? ' <span class="gold">YOU</span>' : ''}</th><th class="mid-v">Favored</th><th class="rgt"><span class="tm-red">RED</span>${g.userTeam === 'red' ? ' <span class="gold">YOU</span>' : ''}</th><th class="champ-c"></th></tr>
