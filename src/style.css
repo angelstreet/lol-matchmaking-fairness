@@ -254,6 +254,12 @@ td.you + td.you { border-left:none !important; }
 .chip.synergy-pos { color:var(--ok); border-color:var(--ok); }
 .chip.synergy-neg { color:var(--bad); border-color:var(--bad); }
 .chip.synergy-dim { color:var(--dim); }
+/* v4.33: "Recommended build" reveal (lib/builds.mjs + lib/proExamples.mjs) — a small click-to-
+   expand chip (blue, like the other informational flag-otp/flag-mastery chips) under each player
+   row; .build-b is its hidden panel, toggled by the delegated .build-h click listener. */
+.chip.build-h { color:var(--blue); border-color:var(--blue); cursor:pointer; }
+.build-b { font-size:11px; color:var(--dim); line-height:1.5; margin-top:3px; max-width:260px; }
+.build-b b { color:var(--txt); }
 /* v4.22: DRAFT verdict — champ-select quality, its own bordered pill (was two stacked plain-text
    lines: a "bot synergy X vs Y" readout, then a separate colored "DRAFT · EVEN" line — merged into
    one block so it reads as a single distinct signal under the fairness badge/win-prob line rather

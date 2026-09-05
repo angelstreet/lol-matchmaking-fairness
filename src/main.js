@@ -2,6 +2,8 @@ import './style.css';
 import { netCounter } from '../lib/counters.mjs';
 import { STATS as CHAMP_STATS, PATCH as CHAMP_STATS_PATCH } from '../lib/champstats.mjs';
 import { PAIRS as DUO_PAIRS, PATCH as DUO_SYNERGY_PATCH } from '../lib/duosynergy.mjs';
+import { BUILDS, PATCH as BUILDS_PATCH } from '../lib/builds.mjs';
+import { EXAMPLES as PRO_EXAMPLES } from '../lib/proExamples.mjs';
 
 // Same-origin API in production (Vercel functions); Vite proxies /api in dev.
 const API = import.meta.env.VITE_API_URL || '';
@@ -2147,6 +2149,46 @@ function botSynergyChipHTML(synergy) {
   return `<span class="chip ${cls}" title="${esc(title)}">duo ${sign}${fmt1(synergy.delta)}%</span>`;
 }
 
+// v4.33: "Recommended build" reveal — lib/builds.mjs's per-patch snapshot (deeplol.gg, real
+// sample sizes), keyed by the same match-v5 internal championName + Riot teamPosition every other
+// champ/role lookup in this file already uses. A champion/role missing from the snapshot (not
+// enough games on deeplol at fetch time, or a role that champion doesn't actually play) just
+// renders nothing — never a fabricated build. Click-to-reveal (not a hover tooltip, unlike
+// champMetaTitle above) since this is multiple lines of content — a small "build" chip toggles a
+// hidden panel right underneath it, reusing the same generic id-toggle mechanism as the
+// Matchup/Details section headers further down (see the delegated .build-h click listener).
+function recommendedBuildOf(champ, pos) {
+  return (champ && BUILDS[champ]?.[pos]) || null;
+}
+
+// v4.33: lolvvv.com's per-champion pro/high-elo example games (lib/proExamples.mjs) — thin,
+// illustrative, NOT a win-rate claim (see that file's header). Only ever surfaced when a real
+// tracked game exists for this EXACT champion+opponent matchup (the enemy laner actually in this
+// game), so it always reads as "here's a real game like this one," never a generic highlight
+// reel. Most-recent match wins when more than one exists for the same matchup.
+function proExampleOf(champ, oppChamp) {
+  if (!champ || !oppChamp) return null;
+  return (PRO_EXAMPLES[champ] || []).find(ex => ex.opponent === oppChamp) || null;
+}
+
+function buildRevealHTML(champ, pos, oppChamp, uid) {
+  const build = recommendedBuildOf(champ, pos);
+  if (!build) return '';
+  const items = build.items.join(' + ');
+  const boots = build.boots ? `, ${build.boots}` : '';
+  const skill = build.skillOrder?.length ? ` · skill ${build.skillOrder.join(' > ')}` : '';
+  const gamesLabel = build.games >= 1000 ? `${fmt1(build.games / 1000)}k` : `${build.games}`;
+  let panel = `<b>${esc(build.keystone)}</b> · ${esc(items)}${esc(boots)}${skill} · WR ${build.winRate}% (${gamesLabel} games, patch ${BUILDS_PATCH})`;
+  const example = proExampleOf(champ, oppChamp);
+  if (example) {
+    const headline = example.items[0] || build.items[0];
+    panel += `<br><span class="dim">Pro example: built ${esc(headline)} into ${esc(oppChamp)} (patch ${esc(example.patch)})</span>`;
+  }
+  const targetId = `bd-${uid}`;
+  return `<span class="chip build-h" data-target="${targetId}" title="Recommended build — click to expand">build</span>` +
+    `<div class="build-b" id="${targetId}" style="display:none">${panel}</div>`;
+}
+
 // v4.2: mirrors lib/riot.mjs's duo-lane bonus — a duo'd player's lane reads a bit stronger than
 // their solo GA alone, since they can coordinate with a teammate elsewhere on the map. v4.14: a
 // jungle-inclusive duo's bonus is now ADAPTIVE (mirrors lib/riot.mjs's jungleDuoBonus/duoLaneInfo)
@@ -2351,7 +2393,7 @@ function laneFavor(a, b, skipEvenSide) {
   return { side: d > 0 ? 'blue' : 'red' };
 }
 
-function matchupHTML(g, rid) {
+function matchupHTML(g, rid, key = 'x') {
   const meName = (rid || CTX.riotId).replace('#', '-').toLowerCase();
   const by = (t, role) => (g.players || []).find(p => p.team === t && p.pos === role);
   // v4.20: one bot-lane synergy value per TEAM (its BOTTOM+UTILITY champion pair), computed once
@@ -2369,7 +2411,7 @@ function matchupHTML(g, rid) {
   // Lane-favor severity (favored/heavily favored) is NOT shown here — it's the Favored-column
   // value's own tooltip below (laneVerdict), so it isn't duplicated per player. extraChip (v4.20):
   // the bot synergy chip on BOTTOM/UTILITY rows, appended after the flag/duo/streak/cs chip group.
-  const cellName = (p, oppChamp, extraChip, side) => {
+  const cellName = (p, oppChamp, extraChip, side, role) => {
     if (!p) return '<span class="dim">—</span>';
     const place = p.place ? `<span class="place">#${p.place}</span>` : '';
     const name = `<span class="pname">${nameLink(p.n)}</span>`;
@@ -2396,7 +2438,8 @@ function matchupHTML(g, rid) {
       main = `<span class="p-main-info">${info}</span>` + (rank ? `<span class="p-cell-edge">${rank}</span>` : '');
     }
     const chips = badgeHTML(p) + chipsHTML(p, oppChamp) + perfHTML(p) + (extraChip || '');
-    return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '');
+    const buildReveal = role ? buildRevealHTML(p.champ, role, oppChamp, `${key}-${role}-${side}`) : '';
+    return `<div class="p-main">${main}</div>` + (chips ? `<div class="p-chips">${chips}</div>` : '') + buildReveal;
   };
   // v4.22: draft-pill component strings collected as they're derived — countered-lane notes here
   // (as each lane is walked, reusing the exact bCounter/rCounter values already computed per-lane
@@ -2473,7 +2516,7 @@ function matchupHTML(g, rid) {
     // the lane's Favored verdict, in the same center column.
     const roleIcon = ROLE_ICON[role];
     const midCell = `<img class="role-icon" src="${roleIcon.url}" alt="${roleIcon.label}" title="${roleIcon.label}">${laneVerdict(bAdj, rAdj, riskNote, favorTooltip, skipEvenSide)}`;
-    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip, 'blue')}</td><td class="mid-v">${midCell}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip, 'red')}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
+    return `<tr><td${rowCls('champ-c', b, 'blue')}>${champCell(b, 'blue')}</td><td${rowCls('', b, 'blue')}>${cellName(b, r?.champ, bSynergyChip, 'blue', role)}</td><td class="mid-v">${midCell}</td><td${rowCls('rgt', r, 'red')}>${cellName(r, b?.champ, rSynergyChip, 'red', role)}</td><td${rowCls('champ-c rgt', r, 'red')}>${champCell(r, 'red')}</td></tr>`;
   }).join('');
   const gB = g.teamGA?.blue, gR = g.teamGA?.red;
   const blueWon = (g.result === 'Victory') === (g.userTeam === 'blue');
@@ -2548,7 +2591,7 @@ function detailsHTML(g, key = 'x', rid) {
   // Matchup summary is the primary view (expanded); full team tables are on-demand (collapsed).
   // Sections are toggled by the delegated .sec-h handler below.
   return `<div class="sec-h first" data-target="${mId}">▾ Matchup</div>` +
-    `<div class="sec-b" id="${mId}">${matchupHTML(g, rid)}</div>` +
+    `<div class="sec-b" id="${mId}">${matchupHTML(g, rid, key)}</div>` +
     `<div class="sec-h" data-target="${dId}">▸ Details</div>` +
     `<div class="sec-b" id="${dId}" style="display:none">${teams}</div>`;
 }
@@ -2561,6 +2604,17 @@ document.addEventListener('click', e => {
   const willShow = body.style.display === 'none';
   body.style.display = willShow ? '' : 'none';
   h.textContent = h.textContent.replace(/^./, willShow ? '▾' : '▸');
+});
+
+// v4.33: same generic id-toggle pattern as the .sec-h handler above, scoped to its own class so
+// the "Recommended build" chip (buildRevealHTML) never gets swept up by .sec-h's arrow-prefix
+// text rewrite (a "build" chip has no leading glyph to replace).
+document.addEventListener('click', e => {
+  const h = e.target.closest('.build-h');
+  if (!h) return;
+  const body = document.getElementById(h.dataset.target);
+  if (!body) return;
+  body.style.display = body.style.display === 'none' ? '' : 'none';
 });
 
 // PWA: registers the static-shell service worker (public/sw.js) so the app is installable
